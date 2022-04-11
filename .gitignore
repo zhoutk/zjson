@@ -1,0 +1,15 @@
+Debug/
+Release/
+build/
+.vs/
+ipch/
+vs19/
+*.sdf
+*.user
+*.opensdf
+*.suo
+*.db
+main
+*.o
+Makefile
+out/
