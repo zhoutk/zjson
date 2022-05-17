@@ -7,7 +7,7 @@ set(ver_minor ${CMAKE_MATCH_1})
 string(REGEX MATCH "VERSION_PATCH ([0-9]*)" _ ${ver})
 set(ver_patch ${CMAKE_MATCH_1})
 message("version: ${ver_major}.${ver_minor}.${ver_patch}")
-project(zJSON VERSION ${ver_major}.${ver_minor}.${ver_patch})
+project(zjson VERSION ${ver_major}.${ver_minor}.${ver_patch})
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,8 +32,8 @@ endif()
 
 add_definitions(-DDEBUG -DREAL_COOL_ENGINEER)
 
-FILE(GLOB_RECURSE SRC_FILES "./src/*.cpp" "./src/*.c") 
-FILE(GLOB_RECURSE HEAD_FILES "./src/*.h" "./src/*.hpp") 
+FILE(GLOB_RECURSE SRC_FILES "./src/*.cpp") 
+FILE(GLOB_RECURSE HEAD_FILES "./src/*.hpp") 
 
 source_group("Head Files" FILES ${HEAD_FILES} )
 
