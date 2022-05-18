@@ -74,7 +74,7 @@ namespace ZJSON {
 				else if (Utils::stringStartWith(typeStr, "char const") || Utils::stringContain(typeStr, "::basic_string<")) {
 					node->type = Type::String;
 					string v;
-					if (Utils::stringStartWith(data.type().name(), "char const"))
+					if (Utils::stringStartWith(typeStr, "char const"))
 						v = std::any_cast<char const*>(data);
 					else
 						v = std::any_cast<string>(data);
