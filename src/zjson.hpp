@@ -70,7 +70,7 @@ namespace ZJSON {
 						dd = std::any_cast<char>(data);
 					else if (Utils::stringEqualTo(typeStr, "long"))
 						dd = std::any_cast<long>(data);
-					else if (Utils::stringEqualTo(typeStr, "__int64"))
+					else if (Utils::stringEqualTo(typeStr, "__int64") || Utils::stringEqualTo(typeStr, "long long"))
 						dd = std::any_cast<long long>(data);
 					else
 						dd = std::any_cast<double>(data);
