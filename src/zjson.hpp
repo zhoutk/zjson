@@ -67,6 +67,8 @@ namespace ZJSON {
 					node->prev = this;
 					this->child = node;
 				}
+
+				return true;
 			}
 			else {
 				return false;
