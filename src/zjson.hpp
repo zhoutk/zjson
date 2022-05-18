@@ -44,7 +44,7 @@ namespace ZJSON {
         }
 
 		Json(Type type, string value) : Json(type) {
-            this->data = value;
+            this->data = value.c_str();
 		}
 
 		template<typename T> bool AddValue(string name, T value) {
@@ -56,9 +56,10 @@ namespace ZJSON {
 				if (Utils::stringEqualTo(typeStr, "int")) {
 					node->type = Type::Number;
 				}
-				else if (Utils::stringStartWith(typeStr, "char const")) {
+				else if (Utils::stringStartWith(typeStr, "char const") || Utils::stringContain(typeStr, "::basic_string<")) {
 					node->type = Type::String;
 				}
+				
 				if (this->child) {
 					Json* prev = this->child;
 					Json* cur = this->child->next;
@@ -81,18 +82,6 @@ namespace ZJSON {
 			}
 		}
 
-		bool AddValueString(string name, string value) {
-			if (this->type == Type::Object || this->type == Type::Array) {
-				Json* node = new Json(Type::String, value);
-				node->name = name;
-				this->child = node;
-				return true;
-			}
-			else {
-				return false;
-			}
-		}
-
 		void toString(Json json, string & result) {
 			if (json.type == Type::Object) {
 				result.append("{");
@@ -103,7 +92,12 @@ namespace ZJSON {
 				result += "}";
 			}
 			else if (json.type == Type::String) {
-				result += "\"" + json.name + "\":\"" + std::any_cast<char const*>(json.data) + "\",";
+				string v;
+				if (Utils::stringStartWith(json.data.type().name(), "char const"))
+					v = std::any_cast<char const *>(json.data);
+				else
+					v = std::any_cast<string>(json.data);
+				result += "\"" + json.name + "\":\"" + v + "\",";
 			}
 			else if (json.type == Type::Number) {
 				result += "\"" + json.name + "\":" + std::to_string(std::any_cast<int>(json.data)) + ",";

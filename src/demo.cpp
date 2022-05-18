@@ -9,7 +9,9 @@ using namespace ZJSON;
 int main(int argc, char* argv[])
 {
 	Json ajson;
-	ajson.AddValue("name", "kevin");
+	std::string data = "kevin";
+	ajson.AddValue("name", data);
+	ajson.AddValue("school", "第八十五中学");
 	ajson.AddValue("age", 18);
 	std::cout << ajson.toString() << std::endl;
 
