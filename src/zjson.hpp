@@ -80,6 +80,14 @@ namespace ZJSON {
 						v = std::any_cast<string>(data);
 					node->data = v;
 				}
+				else if (Utils::stringEqualTo(typeStr, "bool")) {
+					bool dd = std::any_cast<bool>(data);
+					if (dd)
+						node->type = Type::True;
+					else
+						node->type = Type::False;
+					node->data = dd;
+				}
 				else {
 					return false;
 				}
@@ -124,11 +132,17 @@ namespace ZJSON {
 				double temp = std::get<double>(json.data);
 				if (temp == (int)temp)
 					intOrDoub = std::to_string((int)temp);
-				else
+				else {
 					intOrDoub = std::to_string(temp);
+					intOrDoub.erase(intOrDoub.find_last_not_of('0') + 1);
+				}
 
 				result += "\"" + json.name + "\":" + intOrDoub + ",";
 			}
+			else if (json.type == Type::True || json.type == Type::False) {
+				result += "\"" + json.name + "\":" + (std::get<bool>(json.data) ? "true" : "false") + ",";
+			}
+
 			if (json.next) {
 				toString(*json.next, result);
 			}
