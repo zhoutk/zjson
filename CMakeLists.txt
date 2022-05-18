@@ -49,6 +49,9 @@ if (CMAKE_ZJSON_ENABLE_TEST)
 
     add_executable(test_test tests/test_test.cpp)
     target_link_libraries(test_test gtest gtest_main)
+    add_executable(test_object tests/test_object.cpp)
+    target_link_libraries(test_object gtest gtest_main)
 
     add_test(NAME test_test COMMAND test_test)
+    add_test(NAME test_object COMMAND test_object)
 endif()
