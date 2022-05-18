@@ -59,6 +59,7 @@ namespace ZJSON {
 					Utils::stringEqualTo(typeStr, "char") ||
 					Utils::stringEqualTo(typeStr, "long") ||
 					Utils::stringEqualTo(typeStr, "__int64") ||
+					Utils::stringEqualTo(typeStr, "long long") ||
 					Utils::stringEqualTo(typeStr, "float")
 					) {
 					node->type = Type::Number;
