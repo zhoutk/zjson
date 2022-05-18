@@ -56,6 +56,8 @@ namespace ZJSON {
 				if (Utils::stringEqualTo(typeStr, "int") || 
 					Utils::stringEqualTo(typeStr, "double") ||
 					Utils::stringEqualTo(typeStr, "char") ||
+					Utils::stringEqualTo(typeStr, "long") ||
+					Utils::stringEqualTo(typeStr, "__int64") ||
 					Utils::stringEqualTo(typeStr, "float")
 					) {
 					node->type = Type::Number;
@@ -66,6 +68,10 @@ namespace ZJSON {
 						dd = std::any_cast<float>(data);
 					else if (Utils::stringEqualTo(typeStr, "char"))
 						dd = std::any_cast<char>(data);
+					else if (Utils::stringEqualTo(typeStr, "long"))
+						dd = std::any_cast<long>(data);
+					else if (Utils::stringEqualTo(typeStr, "__int64"))
+						dd = std::any_cast<long long>(data);
 					else
 						dd = std::any_cast<double>(data);
 					node->data = dd;

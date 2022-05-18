@@ -10,6 +10,10 @@ int main(int argc, char* argv[])
 	Json ajson;
 	std::string data = "kevin";
 	float f = 9.01234567;
+	long l = 123;
+	long long ll = 56789;
+	ajson.AddValue("long", l);
+	ajson.AddValue("longlong", ll);
 	ajson.AddValue("sex", true);
 	ajson.AddValue("name", data);
 	ajson.AddValue("school-cn", "第八十五中学");
