@@ -1,5 +1,8 @@
 ﻿#pragma once
 #include <string>
+#include "check_type.hpp"
+#include "utils.hpp"
+#include <any>
 
 namespace ZJSON {
 
@@ -25,7 +28,7 @@ namespace ZJSON {
 		Json *prev;
 		Json *child;
 		Type type;
-		string data;
+		std::any data;
 		string name;
 	public:
 		Json() {
@@ -44,36 +47,37 @@ namespace ZJSON {
             this->data = value;
 		}
 
-		template<typename T> void AddValue(Type type, string name, T value) {
-			Json* node = new Json(type);
-			node->name = name;
-			switch (type)
-			{
-			case ZJSON::Type::Error:
-				break;
-			case ZJSON::Type::False:
-				node->data = "false";
-				break;
-			case ZJSON::Type::True:
-				node->data = "true";
-				break;
-			case ZJSON::Type::Null:
-				node->data = "null";
-				break;
-			case ZJSON::Type::Number:
-				node->data = std::to_string(value);
-				break;
-			case ZJSON::Type::String:
+		template<typename T> bool AddValue(string name, T value) {
+			if (this->type == Type::Object || this->type == Type::Array) {
+				string typeStr = check_type<T>();
+				Json* node = new Json();
+				node->name = name;
 				node->data = value;
-				break;
-			case ZJSON::Type::Array:
-				break;
-			case ZJSON::Type::Object:
-				break;
-			case ZJSON::Type::Raw:
-				break;
-			default:
-				break;
+				if (Utils::stringEqualTo(typeStr, "int")) {
+					node->type = Type::Number;
+				}
+				else if (Utils::stringStartWith(typeStr, "char const")) {
+					node->type = Type::String;
+				}
+				if (this->child) {
+					Json* prev = this->child;
+					Json* cur = this->child->next;
+					while (cur) {
+						prev = cur;
+						cur = cur->next;
+					}
+					node->prev = prev;
+					prev->next = node;
+				}
+				else {
+					node->prev = this;
+					this->child = node;
+				}
+				
+				return true;
+			}
+			else {
+				return false;
 			}
 		}
 
@@ -94,13 +98,18 @@ namespace ZJSON {
 				result.append("{");
 				if (json.child)
 					toString(*this->child, result);
-					result += "}";
+				if (Utils::stringEndWith(result, ","))
+					result = result.substr(0, result.length() - 1);
+				result += "}";
 			}
 			else if (json.type == Type::String) {
-				result += "\"" + json.name + "\":\"" + json.data + "\"";
+				result += "\"" + json.name + "\":\"" + std::any_cast<char const*>(json.data) + "\",";
 			}
 			else if (json.type == Type::Number) {
-				result += "\"" + json.name + "\":" + json.data;
+				result += "\"" + json.name + "\":" + std::to_string(std::any_cast<int>(json.data)) + ",";
+			}
+			if (json.next) {
+				toString(*json.next, result);
 			}
 		}
 

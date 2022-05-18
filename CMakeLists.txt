@@ -9,7 +9,7 @@ set(ver_patch ${CMAKE_MATCH_1})
 message("version: ${ver_major}.${ver_minor}.${ver_patch}")
 project(zjson VERSION ${ver_major}.${ver_minor}.${ver_patch})
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
