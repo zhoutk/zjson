@@ -50,6 +50,7 @@ namespace ZJSON {
 		template<typename T> bool AddValue(string name, T value) {
 			if (this->type == Type::Object || this->type == Type::Array) {
 				string typeStr = GetTypeName(T);
+				std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
 				Json* node = new Json();
 				node->name = name;
 				std::any data = value;
