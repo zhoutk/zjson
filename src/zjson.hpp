@@ -47,25 +47,10 @@ namespace ZJSON {
             this->data = value.c_str();
 		}
 
-		bool AddValueNull(string name) {
-			if (this->type == Type::Object || this->type == Type::Array) {
-				Json* node = new Json();
-				node->name = name;
-				node->type = Type::Null;
-
-				appendNodeToJson(node);
-
-				return true;
-			}
-			else {
-				return false;
-			}
-		}
-
 		template<typename T> bool AddValueBase(string name, T value) {
 			if (this->type == Type::Object || this->type == Type::Array) {
 				string typeStr = GetTypeName(T);
-				//std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
+				std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
 				Json* node = new Json();
 				node->name = name;
 				std::any data = value;
@@ -110,6 +95,9 @@ namespace ZJSON {
 					else
 						node->type = Type::False;
 					node->data = dd;
+				}
+				else if (Utils::stringEqualTo(typeStr, "std::nullptr_t")) {
+					node->type = Type::Null;
 				}
 				else {
 					return false;
