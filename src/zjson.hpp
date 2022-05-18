@@ -64,7 +64,7 @@ namespace ZJSON {
 					prev->next = node;
 				}
 				else {
-					node->prev = this;
+					node->prev = nullptr;
 					this->child = node;
 				}
 
@@ -139,7 +139,7 @@ namespace ZJSON {
 					prev->next = node;
 				}
 				else {
-					node->prev = this;
+					node->prev = nullptr;
 					this->child = node;
 				}
 				
