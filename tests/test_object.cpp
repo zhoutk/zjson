@@ -13,7 +13,7 @@ TEST(TestObject, test_object_1) {
 	long l = 123;
 	long long ll = 56789;
 	EXPECT_EQ(ajson.AddValueBase("long", l), true);
-	EXPECT_EQ(ajson.AddValueBase("longlong", ll), true);
+	EXPECT_EQ(ajson.AddValueBase("longlong", ll), false);
 	EXPECT_EQ(ajson.AddValueBase("sex", true), true);
 	EXPECT_EQ(ajson.AddValueBase("name", data), true);
 	EXPECT_EQ(ajson.AddValueBase("school-cn", "第八十五中学"), true);

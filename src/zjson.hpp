@@ -47,10 +47,36 @@ namespace ZJSON {
             this->data = value.c_str();
 		}
 
+		bool AddValueNull(string name) {
+			if (this->type == Type::Object || this->type == Type::Array) {
+				Json* node = new Json();
+				node->name = name;
+				node->type = Type::Null;
+
+				if (this->child) {
+					Json* prev = this->child;
+					Json* cur = this->child->next;
+					while (cur) {
+						prev = cur;
+						cur = cur->next;
+					}
+					node->prev = prev;
+					prev->next = node;
+				}
+				else {
+					node->prev = this;
+					this->child = node;
+				}
+			}
+			else {
+				return false;
+			}
+		}
+
 		template<typename T> bool AddValueBase(string name, T value) {
 			if (this->type == Type::Object || this->type == Type::Array) {
 				string typeStr = GetTypeName(T);
-				std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
+				//std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
 				Json* node = new Json();
 				node->name = name;
 				std::any data = value;
@@ -68,8 +94,9 @@ namespace ZJSON {
 						dd = std::any_cast<int>(data);
 					else if(Utils::stringEqualTo(typeStr, "float"))
 						dd = std::any_cast<float>(data);
-					else if (Utils::stringEqualTo(typeStr, "char"))
+					else if (Utils::stringEqualTo(typeStr, "char")) {
 						dd = std::any_cast<char>(data);
+					}
 					else if (Utils::stringEqualTo(typeStr, "long"))
 						dd = std::any_cast<long>(data);
 					else if (Utils::stringEqualTo(typeStr, "__int64") || Utils::stringEqualTo(typeStr, "long long"))
@@ -148,6 +175,9 @@ namespace ZJSON {
 			}
 			else if (json.type == Type::True || json.type == Type::False) {
 				result += "\"" + json.name + "\":" + (std::get<bool>(json.data) ? "true" : "false") + ",";
+			}
+			else if (json.type == Type::Null) {
+				result += "\"" + json.name + "\":null,";
 			}
 
 			if (json.next) {

@@ -22,6 +22,7 @@ int main(int argc, char* argv[])
 	ajson.AddValueBase("scores", 95.98);
 	ajson.AddValueBase("classroom", f);
 	ajson.AddValueBase("index", '6');
+	ajson.AddValueNull("nullkey");
 
 	std::cout << std::endl;
 	std::cout << ajson.toString() << std::endl;
