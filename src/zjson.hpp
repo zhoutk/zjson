@@ -96,7 +96,7 @@ namespace ZJSON {
 						node->type = Type::False;
 					node->data = dd;
 				}
-				else if (Utils::stringEqualTo(typeStr, "std::nullptr_t")) {
+				else if (Utils::stringContain(typeStr, "nullptr")) {
 					node->type = Type::Null;
 				}
 				else {
