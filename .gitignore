@@ -13,3 +13,4 @@ main
 *.o
 Makefile
 out/
+Testing/
