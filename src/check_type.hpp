@@ -1,6 +1,7 @@
 #ifndef CHECK_TYPE_HPP___
 #define CHECK_TYPE_HPP___
 
+#define GetTypeName(T) check_type<T>()
 #define GetVarTypeName(var) check_type<decltype(var)>()
 
 #include <typeinfo>     // typeid

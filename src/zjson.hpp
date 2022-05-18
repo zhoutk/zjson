@@ -2,6 +2,7 @@
 #include <string>
 #include "check_type.hpp"
 #include "utils.hpp"
+#include <variant>
 #include <any>
 
 namespace ZJSON {
@@ -28,7 +29,7 @@ namespace ZJSON {
 		Json *prev;
 		Json *child;
 		Type type;
-		std::any data;
+		std::variant <int, bool, double, string> data;
 		string name;
 	public:
 		Json() {
@@ -49,15 +50,38 @@ namespace ZJSON {
 
 		template<typename T> bool AddValue(string name, T value) {
 			if (this->type == Type::Object || this->type == Type::Array) {
-				string typeStr = check_type<T>();
+				string typeStr = GetTypeName(T);
 				Json* node = new Json();
 				node->name = name;
-				node->data = value;
-				if (Utils::stringEqualTo(typeStr, "int")) {
+				std::any data = value;
+				if (Utils::stringEqualTo(typeStr, "int") || 
+					Utils::stringEqualTo(typeStr, "double") ||
+					Utils::stringEqualTo(typeStr, "char") ||
+					Utils::stringEqualTo(typeStr, "float")
+					) {
 					node->type = Type::Number;
+					double dd = 0.0;
+					if(Utils::stringEqualTo(typeStr, "int"))
+						dd = std::any_cast<int>(data);
+					else if(Utils::stringEqualTo(typeStr, "float"))
+						dd = std::any_cast<float>(data);
+					else if (Utils::stringEqualTo(typeStr, "char"))
+						dd = std::any_cast<char>(data);
+					else
+						dd = std::any_cast<double>(data);
+					node->data = dd;
 				}
 				else if (Utils::stringStartWith(typeStr, "char const") || Utils::stringContain(typeStr, "::basic_string<")) {
 					node->type = Type::String;
+					string v;
+					if (Utils::stringStartWith(data.type().name(), "char const"))
+						v = std::any_cast<char const*>(data);
+					else
+						v = std::any_cast<string>(data);
+					node->data = v;
+				}
+				else {
+					return false;
 				}
 				
 				if (this->child) {
@@ -92,15 +116,18 @@ namespace ZJSON {
 				result += "}";
 			}
 			else if (json.type == Type::String) {
-				string v;
-				if (Utils::stringStartWith(json.data.type().name(), "char const"))
-					v = std::any_cast<char const *>(json.data);
-				else
-					v = std::any_cast<string>(json.data);
+				string v = std::get<std::string>(json.data);
 				result += "\"" + json.name + "\":\"" + v + "\",";
 			}
 			else if (json.type == Type::Number) {
-				result += "\"" + json.name + "\":" + std::to_string(std::any_cast<int>(json.data)) + ",";
+				string intOrDoub = "";
+				double temp = std::get<double>(json.data);
+				if (temp == (int)temp)
+					intOrDoub = std::to_string((int)temp);
+				else
+					intOrDoub = std::to_string(temp);
+
+				result += "\"" + json.name + "\":" + intOrDoub + ",";
 			}
 			if (json.next) {
 				toString(*json.next, result);
