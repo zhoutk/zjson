@@ -12,16 +12,18 @@ int main(int argc, char* argv[])
 	float f = 9.01234567;
 	long l = 123;
 	long long ll = 56789;
-	ajson.AddValue("long", l);
-	ajson.AddValue("longlong", ll);
-	ajson.AddValue("sex", true);
-	ajson.AddValue("name", data);
-	ajson.AddValue("school-cn", "第八十五中学");
-	ajson.AddValue("school-en", "the 85th.");
-	ajson.AddValue("age", 10);
-	ajson.AddValue("scores", 95.98);
-	ajson.AddValue("classroom", f);
-	ajson.AddValue("index", '6');
+	ajson.AddValueBase("long", l);
+	ajson.AddValueBase("longlong", ll);
+	ajson.AddValueBase("sex", true);
+	ajson.AddValueBase("name", data);
+	ajson.AddValueBase("school-cn", "第八十五中学");
+	ajson.AddValueBase("school-en", "the 85th.");
+	ajson.AddValueBase("age", 10);
+	ajson.AddValueBase("scores", 95.98);
+	ajson.AddValueBase("classroom", f);
+	ajson.AddValueBase("index", '6');
+
+	std::cout << std::endl;
 	std::cout << ajson.toString() << std::endl;
 
 	system("pause");

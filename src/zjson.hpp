@@ -47,7 +47,7 @@ namespace ZJSON {
             this->data = value.c_str();
 		}
 
-		template<typename T> bool AddValue(string name, T value) {
+		template<typename T> bool AddValueBase(string name, T value) {
 			if (this->type == Type::Object || this->type == Type::Array) {
 				string typeStr = GetTypeName(T);
 				std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
