@@ -4,6 +4,9 @@
 
 using std::string;
 
+#define GetTypeName(T) check_type<T>()
+#define GetVarTypeName(var) check_type<decltype(var)>()
+
 class Utils {
 public:
 	static bool stringContain(const string& str, const string& to) {
@@ -38,3 +41,28 @@ public:
 		return res;
 	}
 };
+
+
+template <typename T>
+struct check
+{
+	check(std::string& out)
+	{
+#   if defined(__GNUC__)
+		char* real_name = abi::__cxa_demangle(typeid(T).name(), nullptr, nullptr, nullptr);
+		out = real_name;
+		free(real_name);
+#   else
+		out = typeid(T).name();
+#   endif
+	}
+};
+
+
+template <typename T>
+inline std::string check_type(void)
+{
+	std::string str;
+	check<T> { str };
+	return std::move(str);
+}

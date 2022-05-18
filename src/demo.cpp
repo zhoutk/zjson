@@ -1,6 +1,5 @@
 #include <iostream>
 #include "zjson.hpp"
-#include "check_type.hpp"
 #include <array>
 #include <vector>
 
