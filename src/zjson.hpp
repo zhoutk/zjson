@@ -53,20 +53,7 @@ namespace ZJSON {
 				node->name = name;
 				node->type = Type::Null;
 
-				if (this->child) {
-					Json* prev = this->child;
-					Json* cur = this->child->next;
-					while (cur) {
-						prev = cur;
-						cur = cur->next;
-					}
-					node->prev = prev;
-					prev->next = node;
-				}
-				else {
-					node->prev = nullptr;
-					this->child = node;
-				}
+				appendNodeToJson(node);
 
 				return true;
 			}
@@ -128,20 +115,7 @@ namespace ZJSON {
 					return false;
 				}
 				
-				if (this->child) {
-					Json* prev = this->child;
-					Json* cur = this->child->next;
-					while (cur) {
-						prev = cur;
-						cur = cur->next;
-					}
-					node->prev = prev;
-					prev->next = node;
-				}
-				else {
-					node->prev = nullptr;
-					this->child = node;
-				}
+				appendNodeToJson(node);
 				
 				return true;
 			}
@@ -191,6 +165,25 @@ namespace ZJSON {
 			string result;
 			this->toString(*this, result);
 			return result;
+		}
+
+	private:
+		void appendNodeToJson(Json* node)
+		{
+			if (this->child) {
+				Json* prev = this->child;
+				Json* cur = this->child->next;
+				while (cur) {
+					prev = cur;
+					cur = cur->next;
+				}
+				node->prev = prev;
+				prev->next = node;
+			}
+			else {
+				node->prev = nullptr;
+				this->child = node;
+			}
 		}
 
 	};
