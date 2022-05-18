@@ -12,7 +12,7 @@ int main(int argc, char* argv[])
 	std::string data = "kevin";
 	float f = 9.01234567;
 	ajson.AddValue("name", data);
-	ajson.AddValue("school", "第八十五中学");
+	ajson.AddValue("school", "绗叓鍗佷簲涓");
 	ajson.AddValue("age", 18);
 	ajson.AddValue("scores", 95.98);
 	ajson.AddValue("classroom", f);
