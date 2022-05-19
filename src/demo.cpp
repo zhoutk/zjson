@@ -7,7 +7,7 @@ using namespace ZJSON;
 
 int main(int argc, char* argv[])
 {
-	Json ajson;
+	Json ajson(JsonType::Array);
 	std::string data = "kevin";
 	float f = 9.01234567;
 	long l = 123;

@@ -11,40 +11,55 @@ namespace ZJSON {
     using std::string;
     using std::move;
 
-	enum class Type {
-		Error,
-		False,
-		True,
-		Null,
-		Number,
-		String,
-		Array,
-		Object,
-		Raw
+	enum class JsonType
+	{
+		Object = 7,
+		Array = 6
 	};
 
+
+
 	class Json {
-		Json *next;
-		Json *prev;
-		Json *child;
+		enum Type {
+			Error,
+			False,
+			True,
+			Null,
+			Number,
+			String,
+			Array,
+			Object,
+			Raw
+		};
+
+		Json* next;
+		Json* prev;
+		Json* child;
 		Type type;
 		std::variant <int, bool, double, string> data;
 		string name;
-	public:
-		Json() {
+
+
+	private:
+		Json(Type type) {
 			this->next = nullptr;
 			this->prev = nullptr;
 			this->child = nullptr;
 			this->name = "";
-			this->type = Type::Object;
+			this->type = type;
 		}
 
-        Json(Type type) : Json(){
-			this->type = type;
-        }
+	public:
+		Json(JsonType type = JsonType::Object) {
+			this->next = nullptr;
+			this->prev = nullptr;
+			this->child = nullptr;
+			this->name = "";
+			this->type = (Type)type;
+		}
 
 		Json(Type type, string value) : Json(type) {
-            this->data = value.c_str();
+			this->data = value.c_str();
 		}
 
 		template<typename T> bool AddValueBase(string name, T value) {
@@ -113,13 +128,13 @@ namespace ZJSON {
 		}
 
 		void toString(Json json, string & result) {
-			if (json.type == Type::Object) {
-				result.append("{");
+			if (json.type == Type::Object || json.type == Type::Array) {
+				result.append(json.type == Type::Object ? "{" : "[");
 				if (json.child)
 					toString(*this->child, result);
 				if (Utils::stringEndWith(result, ","))
 					result = result.substr(0, result.length() - 1);
-				result += "}";
+				result += (json.type == Type::Object ? "}" : "]");
 			}
 			else if (json.type == Type::String) {
 				string v = std::get<std::string>(json.data);
