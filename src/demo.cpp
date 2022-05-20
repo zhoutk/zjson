@@ -28,8 +28,10 @@ int main(int argc, char* argv[])
 
 	ajson.AddValueJson("subJson", sub);
 
+	Json subArray(JsonType::Array);
+
+	ajson.AddValueJson("array", subArray);
+
 	std::cout << std::endl;
 	std::cout << ajson.toString() << std::endl;
-
-	system("pause");
 }

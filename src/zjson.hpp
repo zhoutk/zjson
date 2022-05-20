@@ -145,10 +145,13 @@ namespace ZJSON {
 				else
 					result.append(json.type == Type::Object ? "{" : "[");
 				if (json.child)
-					toString(*this->child, result, ++deep);
+					toString(*this->child, result, deep + 1);
 				if (Utils::stringEndWith(result, ","))
 					result = result.substr(0, result.length() - 1);
-				result += (json.type == Type::Object ? "}" : "]");
+				if(deep > 0)
+					result += (json.type == Type::Object ? "}," : "],");
+				else
+					result += (json.type == Type::Object ? "}" : "]");
 			}
 			else if (json.type == Type::String) {
 				string v = std::get<std::string>(json.data);
