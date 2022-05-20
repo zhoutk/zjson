@@ -13,7 +13,7 @@ int main(int argc, char* argv[])
 	long l = 123;
 	long long ll = 56789;
 	ajson.AddValueBase("long", l);
-	/*ajson.AddValueBase("longlong", ll);
+	ajson.AddValueBase("longlong", ll);
 	ajson.AddValueBase("sex", true);
 	ajson.AddValueBase("name", data);
 	ajson.AddValueBase("school-cn", "第八十五中学");
@@ -22,21 +22,26 @@ int main(int argc, char* argv[])
 	ajson.AddValueBase("scores", 95.98);
 	ajson.AddValueBase("classroom", f);
 	ajson.AddValueBase("index", '6');
-	ajson.AddValueBase("nullkey", nullptr);*/
+	ajson.AddValueBase("nullkey", nullptr);
 
 	Json sub;
 	sub.AddValueBase("math", 99);
-	ajson.AddValueJson("subJson", &sub);
+	ajson.AddValueJson("subJson", sub);
 
 	ajson.AddValueBase("name", data);
 
-	Json subArray(JsonType::Object);
+	Json subArray(JsonType::Array);
 	subArray.AddValueBase("first", "I'm the first one.");
 	subArray.AddValueBase("two", 2);
 	Json subb;
 	subb.AddValueBase("sbbbbb", "bbbbbbb");
-	subArray.AddValueJson("subObj", &subb);
-	ajson.AddValueJson("array", &subArray);
+	Json littleArray(JsonType::Array);
+	littleArray.AddValueBase(888);
+	littleArray.AddValueBase(999);
+	littleArray.AddValueJson("", subb);
+	subb.AddValueJson("arr", littleArray);
+	subArray.AddValueJson("subObj", subb);
+	ajson.AddValueJson("array", subArray);
 
 	ajson.AddValueBase("scores", 95.98);
 

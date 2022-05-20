@@ -62,14 +62,21 @@ namespace ZJSON {
 		Json(const Json& origin) {
 		}
 
-		bool AddValueJson(string name, Json* obj) {
-			if (obj->type == Type::Object || obj->type == Type::Array) {
-				addSubJson(this, name, obj);
+		bool AddValueJson(string name, Json& obj) {
+			if (obj.type == Type::Object || obj.type == Type::Array) {
+				addSubJson(this, name, &obj);
 				return true;
 			}
 			else {
 				return false;
 			}
+		}
+
+		template<typename T> bool AddValueBase(T value) {
+			if(this->type == Type::Array)
+				return AddValueBase("", value);
+			else
+				return false;
 		}
 
 		template<typename T> bool AddValueBase(string name, T value) {
@@ -215,7 +222,8 @@ namespace ZJSON {
 				subObj->type = obj->type;
 				subObj->name = name;
 				appendNodeToJson(subObj, self);
-				addSubJson(subObj, "", obj->child);
+				if(obj->child)
+					addSubJson(subObj, "", obj->child);
 			}
 			else
 			{
