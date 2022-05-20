@@ -25,12 +25,20 @@ int main(int argc, char* argv[])
 	ajson.AddValueBase("nullkey", nullptr);*/
 
 	Json sub;
-
+	sub.AddValueBase("math", 99);
 	ajson.AddValueJson("subJson", sub);
 
-	Json subArray(JsonType::Array);
+	ajson.AddValueBase("name", data);
 
+	Json subArray(JsonType::Array);
+	subArray.AddValueBase("first", "I'm the first one.");
+	subArray.AddValueBase("two", 2);
+	Json subb;
+	subb.AddValueBase("2.2", 2.2);
+	subArray.AddValueJson("subObj", subb);
 	ajson.AddValueJson("array", subArray);
+
+	ajson.AddValueBase("scores", 95.98);
 
 	std::cout << std::endl;
 	std::cout << ajson.toString() << std::endl;

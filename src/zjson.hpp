@@ -137,29 +137,29 @@ namespace ZJSON {
 			}
 		}
 
-		void toString(Json& json, string & result, int deep = 0) {
-			if (json.type == Type::Object || json.type == Type::Array) {
+		void toString(Json* json, string & result, int deep = 0) {
+			if (json->type == Type::Object || json->type == Type::Array) {
 				if(deep > 0)
-					result.append("\"").append(json.name).append("\":")
-					.append(json.type == Type::Object ? "{" : "[");
+					result.append("\"").append(json->name).append("\":")
+					.append(json->type == Type::Object ? "{" : "[");
 				else
-					result.append(json.type == Type::Object ? "{" : "[");
-				if (json.child)
-					toString(*this->child, result, deep + 1);
+					result.append(json->type == Type::Object ? "{" : "[");
+				if (json->child)
+					toString(json->child, result, deep + 1);
 				if (Utils::stringEndWith(result, ","))
 					result = result.substr(0, result.length() - 1);
 				if(deep > 0)
-					result += (json.type == Type::Object ? "}," : "],");
+					result += (json->type == Type::Object ? "}," : "],");
 				else
-					result += (json.type == Type::Object ? "}" : "]");
+					result += (json->type == Type::Object ? "}" : "]");
 			}
-			else if (json.type == Type::String) {
-				string v = std::get<std::string>(json.data);
-				result += "\"" + json.name + "\":\"" + v + "\",";
+			else if (json->type == Type::String) {
+				string v = std::get<std::string>(json->data);
+				result += "\"" + json->name + "\":\"" + v + "\",";
 			}
-			else if (json.type == Type::Number) {
+			else if (json->type == Type::Number) {
 				string intOrDoub = "";
-				double temp = std::get<double>(json.data);
+				double temp = std::get<double>(json->data);
 				if (temp == (int)temp)
 					intOrDoub = std::to_string((int)temp);
 				else {
@@ -167,23 +167,23 @@ namespace ZJSON {
 					intOrDoub.erase(intOrDoub.find_last_not_of('0') + 1);
 				}
 
-				result += "\"" + json.name + "\":" + intOrDoub + ",";
+				result += "\"" + json->name + "\":" + intOrDoub + ",";
 			}
-			else if (json.type == Type::True || json.type == Type::False) {
-				result += "\"" + json.name + "\":" + (std::get<bool>(json.data) ? "true" : "false") + ",";
+			else if (json->type == Type::True || json->type == Type::False) {
+				result += "\"" + json->name + "\":" + (std::get<bool>(json->data) ? "true" : "false") + ",";
 			}
-			else if (json.type == Type::Null) {
-				result += "\"" + json.name + "\":null,";
+			else if (json->type == Type::Null) {
+				result += "\"" + json->name + "\":null,";
 			}
 
-			if (json.next) {
-				toString(*json.next, result,deep);
+			if (json->next) {
+				toString(json->next, result,deep);
 			}
 		}
 
 		string toString() {
 			string result;
-			this->toString(*this, result);
+			this->toString(this, result);
 			return result;
 		}
 
@@ -217,14 +217,14 @@ namespace ZJSON {
 				if (obj.child) {
 					Json* cur = obj.child;
 					if (cur->type == Type::Object) {
-
+						addSubJson(subObj, cur->name, *cur);
 					}
 					else {
 						do {
 							Json* subContent = new Json();
 							subContent->type = cur->type;
 							subContent->name = cur->name;
-							subContent->data = subContent->data;
+							subContent->data = cur->data;
 							appendNodeToJson(subContent, subObj);
 							cur = cur->next;
 						} while (cur);
