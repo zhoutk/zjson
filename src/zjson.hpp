@@ -56,6 +56,22 @@ namespace ZJSON {
 		}
 
 		Json(const Json& origin) {
+			this->next = nullptr;
+			this->prev = nullptr;
+			this->child = nullptr;
+			this->name = "";
+			this->type = origin.type;
+			addSubJson(this, origin.name, origin.child);
+		}
+
+		Json& operator = (const Json& origin) {
+			new (this)Json(origin);
+			return(*this);
+		}
+
+		Json operator[](string key) {
+			Json rs;
+			return rs;
 		}
 
 		bool AddValueJson(string name, Json& obj) {
@@ -168,6 +184,8 @@ namespace ZJSON {
 		}
 
 		void addSubJson(Json* self, string name, Json* obj) {
+			if(self == nullptr || obj == nullptr)
+				return;
 			if (obj->type == Type::Object || obj->type == Type::Array)
 			{
 				Json *subObj = new Json();

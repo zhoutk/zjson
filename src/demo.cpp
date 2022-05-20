@@ -45,6 +45,12 @@ int main(int argc, char* argv[])
 
 	ajson.AddValueBase("scores", 95.98);
 
+	Json aClone(subb);
+
+	Json aCp = subArray;
+
 	std::cout << std::endl;
-	std::cout << ajson.toString() << std::endl;
+	std::cout << "ajson's string is : " << ajson.toString() << std::endl;
+	std::cout << "aClone's string is : " << aClone.toString() << std::endl;
+	std::cout << "aCp's string is : " << aCp.toString() << std::endl;
 }
