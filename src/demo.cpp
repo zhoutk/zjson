@@ -12,8 +12,8 @@ int main(int argc, char* argv[])
 	float f = 9.01234567;
 	long l = 123;
 	long long ll = 56789;
-	/*ajson.AddValueBase("long", l);
-	ajson.AddValueBase("longlong", ll);
+	ajson.AddValueBase("long", l);
+	/*ajson.AddValueBase("longlong", ll);
 	ajson.AddValueBase("sex", true);
 	ajson.AddValueBase("name", data);
 	ajson.AddValueBase("school-cn", "第八十五中学");

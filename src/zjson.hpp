@@ -137,11 +137,15 @@ namespace ZJSON {
 			}
 		}
 
-		void toString(Json& json, string & result) {
+		void toString(Json& json, string & result, int deep = 0) {
 			if (json.type == Type::Object || json.type == Type::Array) {
-				result.append(json.type == Type::Object ? "{" : "[");
+				if(deep > 0)
+					result.append("\"").append(json.name).append("\":")
+					.append(json.type == Type::Object ? "{" : "[");
+				else
+					result.append(json.type == Type::Object ? "{" : "[");
 				if (json.child)
-					toString(*this->child, result);
+					toString(*this->child, result, ++deep);
 				if (Utils::stringEndWith(result, ","))
 					result = result.substr(0, result.length() - 1);
 				result += (json.type == Type::Object ? "}" : "]");
@@ -170,7 +174,7 @@ namespace ZJSON {
 			}
 
 			if (json.next) {
-				toString(*json.next, result);
+				toString(*json.next, result,deep);
 			}
 		}
 
