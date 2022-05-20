@@ -26,17 +26,17 @@ int main(int argc, char* argv[])
 
 	Json sub;
 	sub.AddValueBase("math", 99);
-	ajson.AddValueJson("subJson", sub);
+	ajson.AddValueJson("subJson", &sub);
 
 	ajson.AddValueBase("name", data);
 
-	Json subArray(JsonType::Array);
+	Json subArray(JsonType::Object);
 	subArray.AddValueBase("first", "I'm the first one.");
 	subArray.AddValueBase("two", 2);
 	Json subb;
-	subb.AddValueBase("2.2", 2.2);
-	subArray.AddValueJson("subObj", subb);
-	ajson.AddValueJson("array", subArray);
+	subb.AddValueBase("sbbbbb", "bbbbbbb");
+	subArray.AddValueJson("subObj", &subb);
+	ajson.AddValueJson("array", &subArray);
 
 	ajson.AddValueBase("scores", 95.98);
 
