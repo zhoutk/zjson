@@ -45,5 +45,5 @@ TEST(TestArray, test_array_1) {
 	EXPECT_EQ(ajson.AddValueBase("index", '6'), true);
 	EXPECT_EQ(ajson.AddValueBase("nullkey", nullptr), true);
 
-	EXPECT_EQ(ajson.toString(), "[\"long\":123,\"longlong\":56789,\"sex\":true,\"name\":\"kevin\",\"school-cn\":\"第八十五中学\",\"school-en\":\"the 85th.\",\"age\":10,\"scores\":95.98,\"classroom\":9.012345,\"index\":54,\"nullkey\":null]");
+	EXPECT_EQ(ajson.toString(), "[123,56789,true,\"kevin\",\"第八十五中学\",\"the 85th.\",10,95.98,9.012345,54,null]");
 }

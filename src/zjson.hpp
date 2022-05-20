@@ -230,7 +230,7 @@ namespace ZJSON {
 				result += (isObj ? "\"" + json->name + "\":" : "") + intOrDoub + ",";
 			}
 			else if (json->type == Type::True || json->type == Type::False) {
-				result += "\"" + json->name + "\":" + (std::get<bool>(json->data) ? "true" : "false") + ",";
+				result += (isObj ? "\"" + json->name + "\":" : "") + (std::get<bool>(json->data) ? "true" : "false") + ",";
 			}
 			else if (json->type == Type::Null) {
 				result += (isObj ? "\"" + json->name + "\":" : "") + "null,";
