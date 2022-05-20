@@ -17,8 +17,6 @@ namespace ZJSON {
 		Array = 6
 	};
 
-
-
 	class Json {
 		enum Type {
 			Error,
@@ -38,7 +36,6 @@ namespace ZJSON {
 		Type type;
 		std::variant <int, bool, double, string> data;
 		string name;
-
 
 	private:
 		Json(Type type) {
@@ -60,6 +57,19 @@ namespace ZJSON {
 
 		Json(Type type, string value) : Json(type) {
 			this->data = value.c_str();
+		}
+
+		Json(const Json& origin) {
+		}
+
+		bool AddValueJson(string name, Json& obj) {
+			if (obj.type == Type::Object || obj.type == Type::Array) {
+				addSubJson(this, name, obj);
+				return true;
+			}
+			else {
+				return false;
+			}
 		}
 
 		template<typename T> bool AddValueBase(string name, T value) {
@@ -127,7 +137,7 @@ namespace ZJSON {
 			}
 		}
 
-		void toString(Json json, string & result) {
+		void toString(Json& json, string & result) {
 			if (json.type == Type::Object || json.type == Type::Array) {
 				result.append(json.type == Type::Object ? "{" : "[");
 				if (json.child)
@@ -171,11 +181,13 @@ namespace ZJSON {
 		}
 
 	private:
-		void appendNodeToJson(Json* node)
+		void appendNodeToJson(Json* node, Json * self = nullptr)
 		{
-			if (this->child) {
-				Json* prev = this->child;
-				Json* cur = this->child->next;
+			if (self == nullptr)
+				self = this;
+			if (self->child) {
+				Json* prev = self->child;
+				Json* cur = self->child->next;
 				while (cur) {
 					prev = cur;
 					cur = cur->next;
@@ -185,7 +197,33 @@ namespace ZJSON {
 			}
 			else {
 				node->prev = nullptr;
-				this->child = node;
+				self->child = node;
+			}
+		}
+
+		void addSubJson(Json* self, string name, Json& obj) {
+			if (obj.type == Type::Object || obj.type == Type::Array) {
+				Json* subObj = new Json();
+				subObj->type = obj.type;
+				subObj->name = name;
+				appendNodeToJson(subObj, self);
+				if (obj.child) {
+					Json* cur = obj.child;
+					if (cur->type == Type::Object) {
+
+					}
+					else {
+						do {
+							Json* subContent = new Json();
+							subContent->type = cur->type;
+							subContent->name = cur->name;
+							subContent->data = subContent->data;
+							appendNodeToJson(subContent, subObj);
+							cur = cur->next;
+						} while (cur);
+					}
+				}
+
 			}
 		}
 
