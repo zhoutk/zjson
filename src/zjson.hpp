@@ -55,10 +55,6 @@ namespace ZJSON {
 			this->type = (Type)type;
 		}
 
-		Json(Type type, string value) : Json(type) {
-			this->data = value.c_str();
-		}
-
 		Json(const Json& origin) {
 		}
 
@@ -144,50 +140,6 @@ namespace ZJSON {
 			}
 		}
 
-		void toString(Json* json, string & result, int deep = 0, bool isObj = true) {
-			if (json->type == Type::Object || json->type == Type::Array) {
-				if(deep > 0)
-					result.append(isObj ? "\"" + json->name + "\":" : "")
-					.append(json->type == Type::Object ? "{" : "[");
-				else
-					result.append(json->type == Type::Object ? "{" : "[");
-				if (json->child)
-					toString(json->child, result, deep + 1, json->type == Json::Type::Object);
-				if (Utils::stringEndWith(result, ","))
-					result = result.substr(0, result.length() - 1);
-				if(deep > 0)
-					result += (json->type == Type::Object ? "}," : "],");
-				else
-					result += (json->type == Type::Object ? "}" : "]");
-			}
-			else if (json->type == Type::String) {
-				string v = std::get<std::string>(json->data);
-				result += (isObj ? "\"" + json->name + "\":\"" : "\"") + v + "\",";
-			}
-			else if (json->type == Type::Number) {
-				string intOrDoub = "";
-				double temp = std::get<double>(json->data);
-				if (temp == (int)temp)
-					intOrDoub = std::to_string((int)temp);
-				else {
-					intOrDoub = std::to_string(temp);
-					intOrDoub.erase(intOrDoub.find_last_not_of('0') + 1);
-				}
-
-				result += (isObj ? "\"" + json->name + "\":" : "") + intOrDoub + ",";
-			}
-			else if (json->type == Type::True || json->type == Type::False) {
-				result += "\"" + json->name + "\":" + (std::get<bool>(json->data) ? "true" : "false") + ",";
-			}
-			else if (json->type == Type::Null) {
-				result += (isObj ? "\"" + json->name + "\":" : "") + "null,";
-			}
-
-			if (json->next) {
-				toString(json->next, result, deep, isObj);
-			}
-		}
-
 		string toString() {
 			string result;
 			this->toString(this, result, 0, this->type == Type::Object);
@@ -244,6 +196,51 @@ namespace ZJSON {
 				}
 			}
 		}
+
+		void toString(Json* json, string & result, int deep = 0, bool isObj = true) {
+			if (json->type == Type::Object || json->type == Type::Array) {
+				if(deep > 0)
+					result.append(isObj ? "\"" + json->name + "\":" : "")
+					.append(json->type == Type::Object ? "{" : "[");
+				else
+					result.append(json->type == Type::Object ? "{" : "[");
+				if (json->child)
+					toString(json->child, result, deep + 1, json->type == Json::Type::Object);
+				if (Utils::stringEndWith(result, ","))
+					result = result.substr(0, result.length() - 1);
+				if(deep > 0)
+					result += (json->type == Type::Object ? "}," : "],");
+				else
+					result += (json->type == Type::Object ? "}" : "]");
+			}
+			else if (json->type == Type::String) {
+				string v = std::get<std::string>(json->data);
+				result += (isObj ? "\"" + json->name + "\":\"" : "\"") + v + "\",";
+			}
+			else if (json->type == Type::Number) {
+				string intOrDoub = "";
+				double temp = std::get<double>(json->data);
+				if (temp == (int)temp)
+					intOrDoub = std::to_string((int)temp);
+				else {
+					intOrDoub = std::to_string(temp);
+					intOrDoub.erase(intOrDoub.find_last_not_of('0') + 1);
+				}
+
+				result += (isObj ? "\"" + json->name + "\":" : "") + intOrDoub + ",";
+			}
+			else if (json->type == Type::True || json->type == Type::False) {
+				result += "\"" + json->name + "\":" + (std::get<bool>(json->data) ? "true" : "false") + ",";
+			}
+			else if (json->type == Type::Null) {
+				result += (isObj ? "\"" + json->name + "\":" : "") + "null,";
+			}
+
+			if (json->next) {
+				toString(json->next, result, deep, isObj);
+			}
+		}
+
 	};
 
 }
