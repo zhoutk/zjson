@@ -64,6 +64,31 @@ namespace ZJSON {
 			addSubJson(this, origin.name, origin.child);
 		}
 
+		~Json(){
+			if(child){
+				DeleteJson(child);
+				child = nullptr;
+			}
+		}
+
+		void DeleteJson(Json *obj) {
+			Json *cur = obj;
+			Json *follow = obj->next;
+			delete cur;
+			cur = nullptr;
+			while (follow) {
+				cur = follow;
+				follow = follow->next;
+				if (cur->type == Type::Object || cur->type == Type::Array) {
+					if (cur->child)
+						DeleteJson(cur->child);
+					cur->child = nullptr;
+				}
+				delete cur;
+				cur = nullptr;
+			}
+		}
+
 		Json& operator = (const Json& origin) {
 			new (this)Json(origin);
 			return(*this);

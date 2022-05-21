@@ -7,50 +7,55 @@ using namespace ZJSON;
 
 int main(int argc, char* argv[])
 {
-	Json ajson(JsonType::Object);
-	std::string data = "kevin";
-	float f = 9.01234567;
-	long l = 123;
-	long long ll = 56789;
-	ajson.AddValueBase("long", l);
-	ajson.AddValueBase("longlong", ll);
-	ajson.AddValueBase("sex", true);
-	ajson.AddValueBase("name", data);
-	ajson.AddValueBase("school-cn", "第八十五中学");
-	ajson.AddValueBase("school-en", "the 85th.");
-	ajson.AddValueBase("age", 10);
-	ajson.AddValueBase("scores", 95.98);
-	ajson.AddValueBase("classroom", f);
-	ajson.AddValueBase("index", '6');
-	ajson.AddValueBase("nullkey", nullptr);
+	for(int i = 0; i < 100000; i++) {
+		Json ajson(JsonType::Object);
+		std::string data = "kevin";
+		float f = 9.01234567;
+		long l = 123;
+		long long ll = 56789;
+		ajson.AddValueBase("long", l);
+		ajson.AddValueBase("longlong", ll);
+		ajson.AddValueBase("sex", true);
+		ajson.AddValueBase("name", data);
+		ajson.AddValueBase("school-cn", "第八十五中学");
+		ajson.AddValueBase("school-en", "the 85th.");
+		ajson.AddValueBase("age", 10);
+		ajson.AddValueBase("scores", 95.98);
+		ajson.AddValueBase("classroom", f);
+		ajson.AddValueBase("index", '6');
+		ajson.AddValueBase("nullkey", nullptr);
 
-	Json sub;
-	sub.AddValueBase("math", 99);
-	ajson.AddValueJson("subJson", sub);
+		Json sub;
+		sub.AddValueBase("math", 99);
+		ajson.AddValueJson("subJson", sub);
 
-	ajson.AddValueBase("name", data);
+		ajson.AddValueBase("name", data);
 
-	Json subArray(JsonType::Array);
-	subArray.AddValueBase("first", "I'm the first one.");
-	subArray.AddValueBase("two", 2);
-	Json subb;
-	subb.AddValueBase("sbbbbb", "bbbbbbb");
-	Json littleArray(JsonType::Array);
-	littleArray.AddValueBase(888);
-	littleArray.AddValueBase(999);
-	littleArray.AddValueJson("", subb);
-	subb.AddValueJson("arr", littleArray);
-	subArray.AddValueJson("subObj", subb);
-	ajson.AddValueJson("array", subArray);
+		Json subArray(JsonType::Array);
+		subArray.AddValueBase("first", "I'm the first one.");
+		subArray.AddValueBase("two", 2);
+		Json subb;
+		subb.AddValueBase("sbbbbb", "bbbbbbb");
+		Json littleArray(JsonType::Array);
+		littleArray.AddValueBase(888);
+		littleArray.AddValueBase(999);
+		littleArray.AddValueJson("", subb);
+		subb.AddValueJson("arr", littleArray);
+		subArray.AddValueJson("subObj", subb);
+		ajson.AddValueJson("array", subArray);
 
-	ajson.AddValueBase("scores", 95.98);
+		ajson.AddValueBase("scores", 95.98);
+		std::cout << "ajson's string is : " << ajson.toString() << std::endl;
+	}
 
-	Json aClone(subb);
+	int a = 1;
 
-	Json aCp = subArray;
+	// Json aClone(subb);
 
-	std::cout << std::endl;
-	std::cout << "ajson's string is : " << ajson.toString() << std::endl;
-	std::cout << "aClone's string is : " << aClone.toString() << std::endl;
-	std::cout << "aCp's string is : " << aCp.toString() << std::endl;
+	// Json aCp = subArray;
+
+	// std::cout << std::endl;
+	// std::cout << "ajson's string is : " << ajson.toString() << std::endl;
+	// std::cout << "aClone's string is : " << aClone.toString() << std::endl;
+	// std::cout << "aCp's string is : " << aCp.toString() << std::endl;
 }
