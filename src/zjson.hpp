@@ -71,22 +71,21 @@ namespace ZJSON {
 			}
 		}
 
-		void DeleteJson(Json *obj) {
+		void DeleteJson(Json *obj) {		//all json type is value type
 			Json *cur = obj;
-			Json *follow = obj->next;
-			delete cur;
-			cur = nullptr;
-			while (follow) {
+			Json *follow = obj;
+			do{
 				cur = follow;
 				follow = follow->next;
 				if (cur->type == Type::Object || cur->type == Type::Array) {
-					if (cur->child)
+					if (cur->child){
 						DeleteJson(cur->child);
-					cur->child = nullptr;
+						cur->child = nullptr;
+					}
 				}
 				delete cur;
 				cur = nullptr;
-			}
+			}while(follow);
 		}
 
 		Json& operator = (const Json& origin) {
