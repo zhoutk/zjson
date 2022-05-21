@@ -71,23 +71,6 @@ namespace ZJSON {
 			}
 		}
 
-		void DeleteJson(Json *obj) {		//all json type is value type
-			Json *cur = obj;
-			Json *follow = obj;
-			do{
-				cur = follow;
-				follow = follow->next;
-				if (cur->type == Type::Object || cur->type == Type::Array) {
-					if (cur->child){
-						DeleteJson(cur->child);
-						cur->child = nullptr;
-					}
-				}
-				delete cur;
-				cur = nullptr;
-			}while(follow);
-		}
-
 		Json& operator = (const Json& origin) {
 			new (this)Json(origin);
 			return(*this);
@@ -237,6 +220,23 @@ namespace ZJSON {
 					cur = cur->next;
 				}
 			}
+		}
+
+		void DeleteJson(Json *obj) {		//all json type is value type
+			Json *cur = obj;
+			Json *follow = obj;
+			do{
+				cur = follow;
+				follow = follow->next;
+				if (cur->type == Type::Object || cur->type == Type::Array) {
+					if (cur->child){
+						DeleteJson(cur->child);
+						cur->child = nullptr;
+					}
+				}
+				delete cur;
+				cur = nullptr;
+			}while(follow);
 		}
 
 		void toString(Json* json, string & result, int deep = 0, bool isObj = true) {
