@@ -30,8 +30,6 @@ int main(int argc, char* argv[])
 		sub.AddValueBase("math", 99);
 		ajson.AddValueJson("subJson", sub);
 
-		ajson.AddValueBase("name", data);
-
 		Json subArray(JsonType::Array);
 		subArray.AddValueBase("first", "I'm the first one.");
 		subArray.AddValueBase("two", 2);
@@ -40,7 +38,9 @@ int main(int argc, char* argv[])
 		Json littleArray(JsonType::Array);
 		littleArray.AddValueBase(888);
 		littleArray.AddValueBase(999);
-		littleArray.AddValueJson("", subb);
+		Json sub2;
+		sub2.AddValueBase("sb2", "second");
+		littleArray.AddValueJson(sub2);
 		subb.AddValueJson("arr", littleArray);
 		subArray.AddValueJson("subObj", subb);
 		ajson.AddValueJson("array", subArray);
@@ -48,12 +48,14 @@ int main(int argc, char* argv[])
 		ajson.AddValueBase("scores", 95.98);
 		std::cout << "ajson's string is : " << ajson.toString() << std::endl;
 
-		Json oper = ajson["sbbbbb"];
+		Json oper = ajson["sb2"];
+		Json operArr = ajson["arr"];
 		Json operBool1 = ajson["sex"];
 		Json operBool2 = ajson["fail"];
 		Json nullValue = ajson["nullkey"];
 
-		std::cout << "[subObj] operator : " << oper.toString() << std::endl;
+		std::cout << "[sb2] operator : " << oper.toString() << std::endl;
+		std::cout << "[arr] operator : " << operArr.toString() << std::endl;
 		std::cout << "[int] operator : " << oper.toInt() << std::endl;
 		std::cout << "[float] operator : " << oper.toFloat() << std::endl;
 		std::cout << "[double] operator : " << oper.toDouble() << std::endl;

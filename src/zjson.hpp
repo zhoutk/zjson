@@ -96,62 +96,12 @@ namespace ZJSON {
 				return rs;
 		}
 
-		bool isError(){
-			return this->type == Type::Error;
-		}
-
-		bool isNull(){
-			return this->type == Type::Null;
-		}
-
-		bool isObject(){
-			return this->type == Type::Object;
-		}
-
-		bool isArray(){
-			return this->type == Type::Array;
-		}
-
-		bool isNumber(){
-			return this->type == Type::Number;
-		}
-
-		bool isTrue(){
-			return this->type == Type::True;
-		}
-
-		bool isFalse(){
-			return this->type == Type::False;
-		}
-
-		float toFloat(){
-			return (float)this->toDouble();
-		}
-
-		int toInt(){
-			return (int)this->toDouble();
-		}
-
-		double toDouble(){
-			if(this->type == Type::Number){
-				double * rs = std::get_if<double>(&this->data);
-				if(rs)
-					return (*rs);
-				else
-					return 0.0;
-			}else
-				return 0.0;
-		}
-
-		bool toBool(){
-			if(this->type == Type::False || this->type == Type::True){
-				bool * rs = std::get_if<bool>(&this->data);
-				if(rs)
-					return (*rs);
-				else
-					return false;
-			}else
+		bool AddValueJson(Json& obj){
+			if(this->type == Type::Array){
+				return AddValueJson("", obj);
+			}else{
 				return false;
+			}
 		}
 
 		bool AddValueJson(string name, Json& obj) {
@@ -246,6 +196,64 @@ namespace ZJSON {
 			}
 		}
 
+		bool isError(){
+			return this->type == Type::Error;
+		}
+
+		bool isNull(){
+			return this->type == Type::Null;
+		}
+
+		bool isObject(){
+			return this->type == Type::Object;
+		}
+
+		bool isArray(){
+			return this->type == Type::Array;
+		}
+
+		bool isNumber(){
+			return this->type == Type::Number;
+		}
+
+		bool isTrue(){
+			return this->type == Type::True;
+		}
+
+		bool isFalse(){
+			return this->type == Type::False;
+		}
+
+		float toFloat(){
+			return (float)this->toDouble();
+		}
+
+		int toInt(){
+			return (int)this->toDouble();
+		}
+
+		double toDouble(){
+			if(this->type == Type::Number){
+				double * rs = std::get_if<double>(&this->data);
+				if(rs)
+					return (*rs);
+				else
+					return 0.0;
+			}else
+				return 0.0;
+		}
+
+		bool toBool(){
+			if(this->type == Type::False || this->type == Type::True){
+				bool * rs = std::get_if<bool>(&this->data);
+				if(rs)
+					return (*rs);
+				else
+					return false;
+			}else
+				return false;
+		}
+
 	private:
 		void appendNodeToJson(Json* node, Json * self = nullptr)
 		{
@@ -316,10 +324,10 @@ namespace ZJSON {
 			}while(follow);
 		}
 
-		Json find(const string& key){
+		Json find(const string& key, bool notArray = true){
 			if(this->type == Type::Array || this->type == Type::Object){
 				if(this->child)
-					return this->child->find(key);
+					return this->child->find(key, notArray);
 				else
 					return Json(Type::Error);
 			}else{
@@ -327,13 +335,13 @@ namespace ZJSON {
 				Json rs(Type::Error);
 				while (cur)
 				{
-					if(cur->name == key){
+					if(notArray && cur->name == key){
 						return Json(*cur);
 					}
 					else{
 						if(cur->type == Type::Array || cur->type == Type::Object){
 							if(cur->child){
-								rs = cur->find(key);
+								rs = cur->find(key, cur->type != Type::Array);
 								if (rs.type != Type::Error)
 									break;
 							}
