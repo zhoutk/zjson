@@ -6,8 +6,8 @@
 
 using namespace ZJSON;
 
-TEST(TestObject, test_object_1) {
-	Json ajson;
+TEST(TestArray, test_array_1) {
+	Json ajson(JsonType::Array);
 	std::string data = "kevin";
 	float f = 9.01234567;
 	long l = 123;
@@ -24,11 +24,5 @@ TEST(TestObject, test_object_1) {
 	EXPECT_EQ(ajson.AddValueBase("index", '6'), true);
 	EXPECT_EQ(ajson.AddValueBase("nullkey", nullptr), true);
 
-	EXPECT_EQ(ajson.toString(), "{\"long\":123,\"longlong\":56789,\"sex\":true,\"name\":\"kevin\",\"school-cn\":\"第八十五中学\",\"school-en\":\"the 85th.\",\"age\":10,\"scores\":95.98,\"classroom\":9.012345,\"index\":54,\"nullkey\":null}");
-
-	EXPECT_DOUBLE_EQ(ajson["scores"].toDouble(), 95.98);
-	EXPECT_EQ(ajson["age"].toDouble(), 10);
-	EXPECT_TRUE(ajson["sex"].toBool());
-	EXPECT_TRUE(ajson["nullkey"].isNull());
-
+	EXPECT_EQ(ajson.toString(), "[123,56789,true,\"kevin\",\"第八十五中学\",\"the 85th.\",10,95.98,9.012345,54,null]");
 }

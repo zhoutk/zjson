@@ -13,8 +13,8 @@ namespace ZJSON {
 
 	enum class JsonType
 	{
-		Object = 7,
-		Array = 6
+		Object = 6,
+		Array = 7
 	};
 
 	class Json {
@@ -25,9 +25,8 @@ namespace ZJSON {
 			Null,
 			Number,
 			String,
-			Array,
 			Object,
-			Raw
+			Array
 		};
 
 		Json* next;
@@ -86,7 +85,7 @@ namespace ZJSON {
 
 		Json operator[](const string& key) {
 			Json rs(Type::Error);
-			if(this->type == Type::Array || this->type == Type::Object) {
+			if(this->type == Type::Object) {
 				if(key.empty()){
 					return rs;
 				}else{
@@ -95,6 +94,34 @@ namespace ZJSON {
 			}
 			else
 				return rs;
+		}
+
+		bool isError(){
+			return this->type == Type::Error;
+		}
+
+		bool isNull(){
+			return this->type == Type::Null;
+		}
+
+		bool isObject(){
+			return this->type == Type::Object;
+		}
+
+		bool isArray(){
+			return this->type == Type::Array;
+		}
+
+		bool isNumber(){
+			return this->type == Type::Number;
+		}
+
+		bool isTrue(){
+			return this->type == Type::True;
+		}
+
+		bool isFalse(){
+			return this->type == Type::False;
 		}
 
 		float toFloat(){
@@ -128,8 +155,8 @@ namespace ZJSON {
 		}
 
 		bool AddValueJson(string name, Json& obj) {
-			if (obj.type == Type::Object || obj.type == Type::Array) {
-				addSubJson(this, name, &obj);
+			if (this->type == Type::Object || this->type == Type::Array) {
+				addSubJson(this, this->type == Type::Object ? name : "", &obj);
 				return true;
 			}
 			else {
@@ -210,9 +237,13 @@ namespace ZJSON {
 		}
 
 		string toString() {
-			string result;
-			this->toString(this, result, 0, this->type == Type::Object);
-			return Utils::stringEndWith(result, ",") ? result.substr(0, result.length() - 1) : result;
+			if (this->type == Type::Error)
+				return "";
+			else {
+				string result;
+				this->toString(this, result, 0, this->type == Type::Object);
+				return Utils::stringEndWith(result, ",") ? result.substr(0, result.length() - 1) : result;
+			}
 		}
 
 	private:

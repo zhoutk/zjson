@@ -46,18 +46,20 @@ int main(int argc, char* argv[])
 		ajson.AddValueJson("array", subArray);
 
 		ajson.AddValueBase("scores", 95.98);
-		// std::cout << "ajson's string is : " << ajson.toString() << std::endl;
+		std::cout << "ajson's string is : " << ajson.toString() << std::endl;
 
-		Json oper = ajson["classroom"];
+		Json oper = ajson["sbbbbb"];
 		Json operBool1 = ajson["sex"];
 		Json operBool2 = ajson["fail"];
+		Json nullValue = ajson["nullkey"];
 
-		std::cout << "[string] operator : " << oper.toString() << std::endl;
+		std::cout << "[subObj] operator : " << oper.toString() << std::endl;
 		std::cout << "[int] operator : " << oper.toInt() << std::endl;
 		std::cout << "[float] operator : " << oper.toFloat() << std::endl;
 		std::cout << "[double] operator : " << oper.toDouble() << std::endl;
 		std::cout << "[true] operator : " << operBool1.toBool() << std::endl;
 		std::cout << "[false] operator : " << operBool2.toBool() << std::endl;
+		std::cout << "[null] operator : " << nullValue.isNull() << std::endl;
 
 	}
 
