@@ -7,7 +7,7 @@ using namespace ZJSON;
 
 int main(int argc, char* argv[])
 {
-	for(int i = 0; i < 10000; i++) {
+	for(int i = 0; i < 1; i++) {
 		Json ajson(JsonType::Object);
 		std::string data = "kevin";
 		float f = 9.01234567;
@@ -45,7 +45,12 @@ int main(int argc, char* argv[])
 		ajson.AddValueJson("array", subArray);
 
 		ajson.AddValueBase("scores", 95.98);
-		std::cout << "ajson's string is : " << ajson.toString() << std::endl;
+		// std::cout << "ajson's string is : " << ajson.toString() << std::endl;
+
+		// Json oper = ajson["subObj"];
+
+		std::cout << "[] operator : " << ajson["name"].toString() << std::endl;
+
 	}
 
 	int a = 1;

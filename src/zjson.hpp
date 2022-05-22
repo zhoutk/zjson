@@ -59,9 +59,17 @@ namespace ZJSON {
 			this->next = nullptr;
 			this->prev = nullptr;
 			this->child = nullptr;
-			this->name = "";
-			this->type = origin.type;
-			addSubJson(this, origin.name, origin.child);
+			if(origin.type == Type::Array || origin.type == Type::Object){
+				this->name = "";
+				this->data = nullptr;
+				this->type = origin.type;
+				addSubJson(this, origin.name, origin.child);
+			}else{
+				this->name = origin.name;
+				this->data = origin.data;
+				this->type = origin.type;
+			}
+
 		}
 
 		~Json(){
@@ -76,9 +84,17 @@ namespace ZJSON {
 			return(*this);
 		}
 
-		Json operator[](string key) {
-			Json rs;
-			return rs;
+		Json operator[](const string& key) {
+			Json rs(Type::Error);
+			if(this->type == Type::Array || this->type == Type::Object) {
+				if(key.empty()){
+					return rs;
+				}else{
+					return this->child->find(key);
+				}
+			}
+			else
+				return rs;
 		}
 
 		bool AddValueJson(string name, Json& obj) {
@@ -166,7 +182,7 @@ namespace ZJSON {
 		string toString() {
 			string result;
 			this->toString(this, result, 0, this->type == Type::Object);
-			return result;
+			return Utils::stringEndWith(result, ",") ? result.substr(0, result.length() - 1) : result;
 		}
 
 	private:
@@ -237,6 +253,35 @@ namespace ZJSON {
 				delete cur;
 				cur = nullptr;
 			}while(follow);
+		}
+
+		Json find(const string& key){
+			if(this->type == Type::Array || this->type == Type::Object){
+				if(this->child)
+					return this->child->find(key);
+				else
+					return Json(Type::Error);
+			}else{
+				Json* cur = this;
+				Json rs(Type::Error);
+				while (cur)
+				{
+					if(cur->name == key){
+						return Json(*cur);
+					}
+					else{
+						if(cur->type == Type::Array || cur->type == Type::Object){
+							if(cur->child){
+								rs = cur->find(key);
+								if (rs.type != Type::Error)
+									break;
+							}
+						}
+						cur = cur->next;
+					}
+				}
+				return rs;
+			}
 		}
 
 		void toString(Json* json, string & result, int deep = 0, bool isObj = true) {
