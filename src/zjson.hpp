@@ -29,7 +29,7 @@ namespace ZJSON {
 			Array
 		};
 
-		Json* next;
+		Json* brother;
 		Json* child;
 		Type type;
 		std::variant <int, bool, double, string> data;
@@ -37,7 +37,7 @@ namespace ZJSON {
 
 	private:
 		Json(Type type) {
-			this->next = nullptr;
+			this->brother = nullptr;
 			this->child = nullptr;
 			this->name = "";
 			this->type = type;
@@ -45,14 +45,14 @@ namespace ZJSON {
 
 	public:
 		Json(JsonType type = JsonType::Object) {
-			this->next = nullptr;
+			this->brother = nullptr;
 			this->child = nullptr;
 			this->name = "";
 			this->type = (Type)type;
 		}
 
 		Json(const Json& origin) {
-			this->next = nullptr;
+			this->brother = nullptr;
 			this->child = nullptr;
 			if(origin.type == Type::Array || origin.type == Type::Object){
 				this->name = "";
@@ -270,12 +270,12 @@ namespace ZJSON {
 				self = this;
 			if (self->child) {
 				Json* prev = self->child;
-				Json* cur = self->child->next;
+				Json* cur = self->child->brother;
 				while (cur) {
 					prev = cur;
-					cur = cur->next;
+					cur = cur->brother;
 				}
-				prev->next = node;
+				prev->brother = node;
 			}
 			else {
 				self->child = node;
@@ -309,7 +309,7 @@ namespace ZJSON {
 						subContent->data = cur->data;
 						appendNodeToJson(subContent, self);
 					}
-					cur = cur->next;
+					cur = cur->brother;
 				}
 			}
 		}
@@ -319,7 +319,7 @@ namespace ZJSON {
 			Json *follow = obj;
 			do{
 				cur = follow;
-				follow = follow->next;
+				follow = follow->brother;
 				if (cur->type == Type::Object || cur->type == Type::Array) {
 					if (cur->child){
 						DeleteJson(cur->child);
@@ -337,7 +337,7 @@ namespace ZJSON {
 			Json rs(Type::Error);
 			while (cur && ct < index)
 			{
-				cur = cur->next;
+				cur = cur->brother;
 				ct++;
 			}
 			if(ct < index || !cur)
@@ -368,7 +368,7 @@ namespace ZJSON {
 									break;
 							}
 						}
-						cur = cur->next;
+						cur = cur->brother;
 					}
 				}
 				return rs;
@@ -414,8 +414,8 @@ namespace ZJSON {
 				result += (isObj ? "\"" + json->name + "\":" : "") + "null,";
 			}
 
-			if (json->next) {
-				toString(json->next, result, deep, isObj);
+			if (json->brother) {
+				toString(json->brother, result, deep, isObj);
 			}
 		}
 
