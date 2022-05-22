@@ -50,12 +50,14 @@ int main(int argc, char* argv[])
 
 		Json oper = ajson["sb2"];
 		Json operArr = ajson["arr"];
+		Json operArr2 = ajson["arr"][2];
 		Json operBool1 = ajson["sex"];
 		Json operBool2 = ajson["fail"];
 		Json nullValue = ajson["nullkey"];
 
 		std::cout << "[sb2] operator : " << oper.toString() << std::endl;
 		std::cout << "[arr] operator : " << operArr.toString() << std::endl;
+		std::cout << "[arr2] operator : " << operArr2.toString() << std::endl;
 		std::cout << "[int] operator : " << oper.toInt() << std::endl;
 		std::cout << "[float] operator : " << oper.toFloat() << std::endl;
 		std::cout << "[double] operator : " << oper.toDouble() << std::endl;

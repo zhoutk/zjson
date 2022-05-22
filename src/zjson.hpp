@@ -83,6 +83,19 @@ namespace ZJSON {
 			return(*this);
 		}
 
+		Json operator[](const int& index) {
+			Json rs(Type::Error);
+			if(this->type == Type::Array) {
+				if(index < 0){
+					return rs;
+				}else{
+					return this->child->find(index);
+				}
+			}
+			else
+				return rs;
+		}
+
 		Json operator[](const string& key) {
 			Json rs(Type::Error);
 			if(this->type == Type::Object) {
@@ -322,6 +335,21 @@ namespace ZJSON {
 				delete cur;
 				cur = nullptr;
 			}while(follow);
+		}
+
+		Json find(int index){
+			int ct = 0;
+			Json* cur = this;
+			Json rs(Type::Error);
+			while (cur && ct < index)
+			{
+				cur = cur->next;
+				ct++;
+			}
+			if(ct < index || !cur)
+				return rs;
+			else
+				return *cur;
 		}
 
 		Json find(const string& key, bool notArray = true){
