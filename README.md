@@ -93,7 +93,7 @@ https://github.com/zhoutk/zjson
 请参看demo.cpp或tests目录下的测试用例
 
 ## 运行方法
-
+该项目在vs2019, gcc7.5, clang12.0下均编译运行正常。
 ```
 git clone https://github.com/zhoutk/zjson
 cd zjson
