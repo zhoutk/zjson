@@ -30,7 +30,6 @@ namespace ZJSON {
 		};
 
 		Json* next;
-		Json* prev;
 		Json* child;
 		Type type;
 		std::variant <int, bool, double, string> data;
@@ -39,7 +38,6 @@ namespace ZJSON {
 	private:
 		Json(Type type) {
 			this->next = nullptr;
-			this->prev = nullptr;
 			this->child = nullptr;
 			this->name = "";
 			this->type = type;
@@ -48,7 +46,6 @@ namespace ZJSON {
 	public:
 		Json(JsonType type = JsonType::Object) {
 			this->next = nullptr;
-			this->prev = nullptr;
 			this->child = nullptr;
 			this->name = "";
 			this->type = (Type)type;
@@ -56,7 +53,6 @@ namespace ZJSON {
 
 		Json(const Json& origin) {
 			this->next = nullptr;
-			this->prev = nullptr;
 			this->child = nullptr;
 			if(origin.type == Type::Array || origin.type == Type::Object){
 				this->name = "";
@@ -279,11 +275,9 @@ namespace ZJSON {
 					prev = cur;
 					cur = cur->next;
 				}
-				node->prev = prev;
 				prev->next = node;
 			}
 			else {
-				node->prev = nullptr;
 				self->child = node;
 			}
 		}
