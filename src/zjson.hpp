@@ -97,6 +97,36 @@ namespace ZJSON {
 				return rs;
 		}
 
+		float toFloat(){
+			return (float)this->toDouble();
+		}
+
+		int toInt(){
+			return (int)this->toDouble();
+		}
+
+		double toDouble(){
+			if(this->type == Type::Number){
+				double * rs = std::get_if<double>(&this->data);
+				if(rs)
+					return (*rs);
+				else
+					return 0.0;
+			}else
+				return 0.0;
+		}
+
+		bool toBool(){
+			if(this->type == Type::False || this->type == Type::True){
+				bool * rs = std::get_if<bool>(&this->data);
+				if(rs)
+					return (*rs);
+				else
+					return false;
+			}else
+				return false;
+		}
+
 		bool AddValueJson(string name, Json& obj) {
 			if (obj.type == Type::Object || obj.type == Type::Array) {
 				addSubJson(this, name, &obj);

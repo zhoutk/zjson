@@ -16,6 +16,7 @@ int main(int argc, char* argv[])
 		ajson.AddValueBase("long", l);
 		ajson.AddValueBase("longlong", ll);
 		ajson.AddValueBase("sex", true);
+		ajson.AddValueBase("falt", false);
 		ajson.AddValueBase("name", data);
 		ajson.AddValueBase("school-cn", "第八十五中学");
 		ajson.AddValueBase("school-en", "the 85th.");
@@ -47,9 +48,16 @@ int main(int argc, char* argv[])
 		ajson.AddValueBase("scores", 95.98);
 		// std::cout << "ajson's string is : " << ajson.toString() << std::endl;
 
-		// Json oper = ajson["subObj"];
+		Json oper = ajson["classroom"];
+		Json operBool1 = ajson["sex"];
+		Json operBool2 = ajson["fail"];
 
-		std::cout << "[] operator : " << ajson["name"].toString() << std::endl;
+		std::cout << "[string] operator : " << oper.toString() << std::endl;
+		std::cout << "[int] operator : " << oper.toInt() << std::endl;
+		std::cout << "[float] operator : " << oper.toFloat() << std::endl;
+		std::cout << "[double] operator : " << oper.toDouble() << std::endl;
+		std::cout << "[true] operator : " << operBool1.toBool() << std::endl;
+		std::cout << "[false] operator : " << operBool2.toBool() << std::endl;
 
 	}
 
