@@ -200,7 +200,10 @@ namespace ZJSON {
 			else {
 				string result;
 				this->toString(this, result, 0, this->type == Type::Object);
-				return Utils::stringEndWith(result, ",") ? result.substr(0, result.length() - 1) : result;
+				if(this->type == Type::String)
+					return result.substr(1, result.length() - 3);
+				else
+					return Utils::stringEndWith(result, ",") ? result.substr(0, result.length() - 1) : result;
 			}
 		}
 

@@ -38,6 +38,7 @@ TEST(TestObject, test_object_1) {
 	EXPECT_EQ(ajson.toString(), "{\"long\":123,\"longlong\":56789,\"sex\":true,\"name\":\"kevin\",\"school-cn\":\"第八十五中学\",\"subObjct\":{\"first\":\"this is the first.\",\"second obj\":{\"sub2-1\":\"the second sub object.\",\"sub2-2\":\"the second field.\"},\"a number\":666},\"school-en\":\"the 85th.\",\"age\":10,\"scores\":95.98,\"classroom\":9.012345,\"index\":54,\"nullkey\":null}");
 
 	EXPECT_DOUBLE_EQ(ajson["scores"].toDouble(), 95.98);
+	EXPECT_EQ(ajson["name"].toString(), "kevin");
 	EXPECT_EQ(ajson["age"].toDouble(), 10);
 	EXPECT_TRUE(ajson["sex"].toBool());
 	EXPECT_TRUE(ajson["nullkey"].isNull());
