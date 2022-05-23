@@ -56,7 +56,6 @@ namespace ZJSON {
 			this->child = nullptr;
 			if(origin.type == Type::Array || origin.type == Type::Object){
 				this->name = "";
-				this->data = nullptr;
 				this->type = origin.type;
 				addSubJson(this, origin.name, origin.child);
 			}else{
