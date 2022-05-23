@@ -97,7 +97,7 @@ https://github.com/zhoutk/zjson
 ```
 git clone https://github.com/zhoutk/zjson
 cd zjson
-cmake -Bbuild ..
+cmake -Bbuild .
 
 ---windows
 cd build && cmake --build .
