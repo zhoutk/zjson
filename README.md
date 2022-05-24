@@ -24,6 +24,9 @@
 - [ ] Remove[All] key  - 删除数据, 因为Json对象允许重复的key
 - [ ] findAll  - 查找全部, 因为Json对象允许重复的key
 - [ ] std::move语义
+- [ ] 递归版性能测试与对比
+- [ ] 算法非递归化
+- [ ] 再次性能测试与对比
   
 ## 数据结构
 
@@ -61,27 +64,27 @@ enum class JsonType
 };
 ```
 接口列表
-- Json(JsonType type = JsonType::Object)             //默认构造函数，生成Object或Array类型的Json对象
-- Json(const Json& origin)                           //复制构造函数
-- Json& operator = (const Json& origin)              //赋值操作
-- Json operator[](const int& index)                  //Json数组对象元素查询
-- Json operator[](const string& key)                 //Json Object 对象按key查询
-- bool AddValueJson(Json& obj)                       //增加子Json类对象类型, 只面向Array
-- bool AddValueJson(string name, Json& obj)          //增加子Json类对象类型，当obj为Array时，name会被忽略
-- template<typename T> bool AddValueBase(T value)    //增加值对象类型，只面向Array
+- Json(JsonType type = JsonType::Object)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//默认构造函数，生成Object或Array类型的Json对象
+- Json(const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;&nbsp;//复制构造函数
+- Json& operator = (const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//赋值操作
+- Json operator[](const int& index)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//Json数组对象元素查询
+- Json operator[](const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//Json Object 对象按key查询
+- bool AddValueJson(Json& obj)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//增加子Json类对象类型, 只面向Array
+- bool AddValueJson(string name, Json& obj)&emsp;&emsp;&emsp;&nbsp;//增加子Json类对象类型，当obj为Array时，name会被忽略
+- template<typename T> bool AddValueBase(T value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//增加值对象类型，只面向Array
 - template<typename T> bool AddValueBase(string name, T value)  //增加值对象类型，当this为Array时，name会被忽略
-- string toString()                                  //Json对象序列化为字符串
-- bool isError()                                     //无效Json对象判定
-- bool isNull()                                      //null值判定
-- bool isObject()                                    //Object对象判定
-- bool isArray()                                     //Array对象判定
-- bool isNumber()                                    //number值判定，Json内使用double型别存储number值
-- bool isTrue()                                      //true值判定
-- bool isFalse()                                     //false值判定
-- int toInt()                                        //值对象转为int
-- float toFloat()                                    //值对象转为float
-- double toDouble()                                  //值对象转为double
-- bool toBool()                                      //值对象转为bool
+- string toString()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//Json对象序列化为字符串
+- bool isError()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//无效Json对象判定
+- bool isNull()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//null值判定
+- bool isObject()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//Object对象判定
+- bool isArray()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//Array对象判定
+- bool isNumber()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//number值判定，Json内使用double型别存储number值
+- bool isTrue()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//true值判定
+- bool isFalse()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//false值判定
+- int toInt()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//值对象转为int
+- float toFloat()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//值对象转为float
+- double toDouble()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//值对象转为double
+- bool toBool()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//值对象转为bool
     
 ## 编程示例
 简单使用示例
