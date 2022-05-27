@@ -17,7 +17,7 @@ namespace ZJSON {
 		Array = 7
 	};
 
-	class Json {
+	class Json final {
 		enum Type {
 			Error,
 			False,
@@ -34,6 +34,16 @@ namespace ZJSON {
 		Type type;
 		std::variant <int, bool, double, string> data;
 		string name;
+
+		static Json parse(const std::string & in, std::string & err);
+		static Json parse(const char * in, std::string & err) {
+			if (in) {
+				return parse(std::string(in), err);
+			} else {
+				err = "null input";
+				return nullptr;
+			}
+		}
 
 	private:
 		Json(Type type) {
@@ -86,6 +96,7 @@ namespace ZJSON {
 				int colonIndex = src.find_first_of(':', index);
 				int quotationNext = src.find_first_of('"', colonIndex + 2);
 			}
+			return true;
 		}
 
 		void compactJsonString(string& str){
@@ -445,8 +456,125 @@ namespace ZJSON {
 			if (json->brother) {
 				toString(json->brother, result, deep, isObj);
 			}
+
 		}
+
+		static inline string esc(char c) {
+			char buf[12];
+			if (static_cast<uint8_t>(c) >= 0x20 && static_cast<uint8_t>(c) <= 0x7f) {
+				snprintf(buf, sizeof buf, "'%c' (%d)", c, c);
+			} else {
+				snprintf(buf, sizeof buf, "(%d)", c);
+			}
+			return string(buf);
+		}
+
+		struct JsonParser final {
+
+			const string &str;
+			size_t i;
+			string &err;
+			bool failed;
+
+			Json fail(string &&msg) {
+				Json err(Type::Error);
+				err.name = msg;
+				return fail(move(msg), err);
+			}
+
+			template <typename T> T fail(string &&msg, const T err_ret) {
+				if (!failed)
+					err = std::move(msg);
+				failed = true;
+				return err_ret;
+			}
+
+			void consume_whitespace() {
+				while (str[i] == ' ' || str[i] == '\r' || str[i] == '\n' || str[i] == '\t')
+					i++;
+			}
+
+			bool consume_comment() {
+				bool comment_found = false;
+				if (str[i] == '/') {
+					i++;
+					if (i == str.size())
+					return fail("unexpected end of input after start of comment", false);
+					if (str[i] == '/') { 
+					i++;
+					while (i < str.size() && str[i] != '\n') {
+						i++;
+					}
+					comment_found = true;
+					}
+					else if (str[i] == '*') {
+					i++;
+					if (i > str.size()-2)
+						return fail("unexpected end of input inside multi-line comment", false);
+					while (!(str[i] == '*' && str[i+1] == '/')) {
+						i++;
+						if (i > str.size()-2)
+						return fail(
+							"unexpected end of input inside multi-line comment", false);
+					}
+					i += 2;
+					comment_found = true;
+					}
+					else
+					return fail("malformed comment", false);
+				}
+				return comment_found;
+			}
+
+			void consume_garbage() {
+				consume_whitespace();
+				bool comment_found = false;
+				do {
+				comment_found = consume_comment();
+				if (failed) return;
+				consume_whitespace();
+				}
+				while(comment_found);
+			}
+
+			char get_next_token() {
+				consume_garbage();
+				if (failed) return static_cast<char>(0);
+				if (i == str.size())
+					return fail("unexpected end of input", static_cast<char>(0));
+
+				return str[i++];
+			}
+
+			Json parse_json(int depth) {
+				if (depth > max_depth) {
+					return fail("exceeded maximum nesting depth");
+				}
+
+				char ch = get_next_token();
+				if (failed)
+					return Json();
+
+
+
+				return fail("expected value, got " + esc(ch));
+			}
+
+		};
 
 	};
 
+	Json Json::parse(const string &in, string &err) {
+		JsonParser parser { in, 0, err, false };
+		Json result = parser.parse_json(0);
+
+		// Check for any trailing garbage
+		parser.consume_garbage();
+		if (parser.failed)
+			return Json();
+		if (parser.i != in.size())
+			return parser.fail("unexpected trailing " + esc(in[parser.i]));
+
+		return result;
+	}
 }
