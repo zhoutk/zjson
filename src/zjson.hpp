@@ -63,6 +63,32 @@ namespace ZJSON {
 				this->data = origin.data;
 				this->type = origin.type;
 			}
+		}
+
+		Json(string jsonStr) : Json(Type::Error){
+			compactJsonString(jsonStr);
+			parse(this, jsonStr, 0, 0, this->type == Type::Object);
+		}
+
+		bool parse(Json * rs, const string& src, int index, int deep = 0, bool isObj = true){
+			if(deep == 0){
+				if(src[index] == '{'){
+					getJsonObject(rs, src, ++index);
+				}
+			}else{
+
+			}
+			return true;
+		}
+
+		bool getJsonObject(Json* rs, const string& src, int& index){
+			if(src[index] == '"'){
+				int colonIndex = src.find_first_of(':', index);
+				int quotationNext = src.find_first_of('"', colonIndex + 2);
+			}
+		}
+
+		void compactJsonString(string& str){
 
 		}
 
