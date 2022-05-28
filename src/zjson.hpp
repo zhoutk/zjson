@@ -45,6 +45,10 @@ namespace ZJSON {
 			}
 		}
 
+		static inline bool in_range(long x, long lower, long upper) {
+			return (x >= lower && x <= upper);
+		}
+
 	private:
 		Json(Type type) {
 			this->brother = nullptr;
@@ -546,6 +550,104 @@ namespace ZJSON {
 				return str[i++];
 			}
 
+			void encode_utf8(long pt, string & out) {
+				if (pt < 0)
+					return;
+
+				if (pt < 0x80) {
+					out += static_cast<char>(pt);
+				} else if (pt < 0x800) {
+					out += static_cast<char>((pt >> 6) | 0xC0);
+					out += static_cast<char>((pt & 0x3F) | 0x80);
+				} else if (pt < 0x10000) {
+					out += static_cast<char>((pt >> 12) | 0xE0);
+					out += static_cast<char>(((pt >> 6) & 0x3F) | 0x80);
+					out += static_cast<char>((pt & 0x3F) | 0x80);
+				} else {
+					out += static_cast<char>((pt >> 18) | 0xF0);
+					out += static_cast<char>(((pt >> 12) & 0x3F) | 0x80);
+					out += static_cast<char>(((pt >> 6) & 0x3F) | 0x80);
+					out += static_cast<char>((pt & 0x3F) | 0x80);
+				}
+			}
+
+			string parse_string() {
+				string out;
+				long last_escaped_codepoint = -1;
+				while (true) {
+					if (i == str.size())
+						return fail("unexpected end of input in string", "");
+
+					char ch = str[i++];
+
+					if (ch == '"') {
+						encode_utf8(last_escaped_codepoint, out);
+						return out;
+					}
+
+					if (in_range(ch, 0, 0x1f))
+						return fail("unescaped " + esc(ch) + " in string", "");
+
+					if (ch != '\\') {
+						encode_utf8(last_escaped_codepoint, out);
+						last_escaped_codepoint = -1;
+						out += ch;
+						continue;
+					}
+
+					if (i == str.size())
+						return fail("unexpected end of input in string", "");
+
+					ch = str[i++];
+
+					if (ch == 'u') {
+						string esc = str.substr(i, 4);
+						if (esc.length() < 4) {
+							return fail("bad \\u escape: " + esc, "");
+						}
+						for (size_t j = 0; j < 4; j++) {
+							if (!in_range(esc[j], 'a', 'f') && !in_range(esc[j], 'A', 'F')
+									&& !in_range(esc[j], '0', '9'))
+								return fail("bad \\u escape: " + esc, "");
+						}
+
+						long codepoint = strtol(esc.data(), nullptr, 16);
+
+						if (in_range(last_escaped_codepoint, 0xD800, 0xDBFF)
+								&& in_range(codepoint, 0xDC00, 0xDFFF)) {
+							encode_utf8((((last_escaped_codepoint - 0xD800) << 10)
+										| (codepoint - 0xDC00)) + 0x10000, out);
+							last_escaped_codepoint = -1;
+						} else {
+							encode_utf8(last_escaped_codepoint, out);
+							last_escaped_codepoint = codepoint;
+						}
+
+						i += 4;
+						continue;
+					}
+
+					encode_utf8(last_escaped_codepoint, out);
+					last_escaped_codepoint = -1;
+
+					if (ch == 'b') {
+						out += '\b';
+					} else if (ch == 'f') {
+						out += '\f';
+					} else if (ch == 'n') {
+						out += '\n';
+					} else if (ch == 'r') {
+						out += '\r';
+					} else if (ch == 't') {
+						out += '\t';
+					} else if (ch == '"' || ch == '\\' || ch == '/') {
+						out += ch;
+					} else {
+						return fail("invalid escape character " + esc(ch), "");
+					}
+				}
+			}
+
 			Json parse_json(int depth) {
 				if (depth > max_depth) {
 					return fail("exceeded maximum nesting depth");
@@ -553,9 +655,43 @@ namespace ZJSON {
 
 				char ch = get_next_token();
 				if (failed)
-					return Json();
+					return Json(Type::Error);
 
+				if (ch == '"')
+            		return parse_string();
 
+				if (ch == '{') {
+					Json data;
+					ch = get_next_token();
+					if (ch == '}')
+						return data;
+
+					while (1) {
+						if (ch != '"')
+							return fail("expected '\"' in object, got " + esc(ch));
+
+						string key = parse_string();
+						if (failed)
+							return Json(Type::Error);
+
+						ch = get_next_token();
+						if (ch != ':')
+							return fail("expected ':' in object, got " + esc(ch));
+
+						data[std::move(key)] = parse_json(depth + 1);
+						if (failed)
+							return Json();
+
+						ch = get_next_token();
+						if (ch == '}')
+							break;
+						if (ch != ',')
+							return fail("expected ',' in object, got " + esc(ch));
+
+						ch = get_next_token();
+					}
+					return data;
+				}
 
 				return fail("expected value, got " + esc(ch));
 			}
@@ -568,7 +704,6 @@ namespace ZJSON {
 		JsonParser parser { in, 0, err, false };
 		Json result = parser.parse_json(0);
 
-		// Check for any trailing garbage
 		parser.consume_garbage();
 		if (parser.failed)
 			return Json();

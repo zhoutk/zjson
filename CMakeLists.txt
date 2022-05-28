@@ -30,7 +30,7 @@ elseif(UNIX)
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2")
 endif()
 
-add_definitions(-DDEBUG -DREAL_COOL_ENGINEER)
+add_definitions(-DDEBUG)
 
 FILE(GLOB_RECURSE SRC_FILES "./src/*.cpp") 
 FILE(GLOB_RECURSE HEAD_FILES "./src/*.hpp") 
