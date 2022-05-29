@@ -7,7 +7,7 @@ using namespace ZJSON;
 
 int main(int argc, char* argv[])
 {
-	string str = "{\"test-key\":\"test-value\"}";
+	string str = "{\"age\":18, \"score\":12.3456,\"name\":\"kevin\"}";
 	Json obj(str);
 	std::cout << "parse a json string : " << obj.toString() << std::endl;
 	// for(int i = 0; i < 1; i++) {

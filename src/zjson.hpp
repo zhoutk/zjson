@@ -558,6 +558,57 @@ namespace ZJSON {
 				}
 			}
 
+			Json parse_number() {
+				Json rs(Type::Number);
+				size_t start_pos = i;
+
+				if (str[i] == '-')
+					i++;
+
+				if (str[i] == '0') {
+					i++;
+					if (in_range(str[i], '0', '9'))
+						return fail("leading 0s not permitted in numbers");
+				} else if (in_range(str[i], '1', '9')) {
+					i++;
+					while (in_range(str[i], '0', '9'))
+						i++;
+				} else {
+					return fail("invalid " + esc(str[i]) + " in number");
+				}
+
+				if (str[i] != '.' && str[i] != 'e' && str[i] != 'E'
+						&& (i - start_pos) <= static_cast<size_t>(std::numeric_limits<int>::digits10)) {
+					rs.data = (double)std::atoi(str.c_str() + start_pos);
+					return rs;
+				}
+
+				if (str[i] == '.') {
+					i++;
+					if (!in_range(str[i], '0', '9'))
+						return fail("at least one digit required in fractional part");
+
+					while (in_range(str[i], '0', '9'))
+						i++;
+				}
+
+				if (str[i] == 'e' || str[i] == 'E') {
+					i++;
+
+					if (str[i] == '+' || str[i] == '-')
+						i++;
+
+					if (!in_range(str[i], '0', '9'))
+						return fail("at least one digit required in exponent");
+
+					while (in_range(str[i], '0', '9'))
+						i++;
+				}
+
+				rs.data = std::strtod(str.c_str() + start_pos, nullptr);
+				return rs;
+			}
+
 			string parse_string() {
 				string out;
 				long last_escaped_codepoint = -1;
@@ -644,6 +695,20 @@ namespace ZJSON {
 				if (failed)
 					return Json(Type::Error);
 
+				 if (ch == '-' || (ch >= '0' && ch <= '9')) {
+					i--;
+					return parse_number();
+				}
+
+				// if (ch == 't')
+				// 	return expect("true", true);
+
+				// if (ch == 'f')
+				// 	return expect("false", false);
+
+				// if (ch == 'n')
+				// 	return expect("null", Json());
+
 				if (ch == '"'){
 					Json jsonString(Type::String);
 					jsonString.data = parse_string();
@@ -658,7 +723,6 @@ namespace ZJSON {
 					if (ch == '}')
 						return data;
 
-					int count = 1;
 					while (1) {
 						if (ch != '"')
 							return fail("expected '\"' in object, got " + esc(ch));
@@ -671,12 +735,8 @@ namespace ZJSON {
 						if (ch != ':')
 							return fail("expected ':' in object, got " + esc(ch));
 
-						if (count == 1)
-						{
-							*cur = parse_json(depth + 1);
-						}else{
-							*cur->brother = parse_json(depth + 1);
-						}
+						*cur = parse_json(depth + 1);
+						cur->name = key;
 
 						if (failed)
 							return Json();
@@ -687,6 +747,8 @@ namespace ZJSON {
 						if (ch != ',')
 							return fail("expected ',' in object, got " + esc(ch));
 
+						cur->brother = new Json(Type::Error);
+						cur = cur->brother;
 						ch = get_next_token();
 					}
 					return data;
