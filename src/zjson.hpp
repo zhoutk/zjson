@@ -437,8 +437,11 @@ namespace ZJSON {
 
 				result += (isObj ? "\"" + json->name + "\":" : "") + intOrDoub + ",";
 			}
-			else if (json->type == Type::True || json->type == Type::False) {
-				result += (isObj ? "\"" + json->name + "\":" : "") + (std::get<bool>(json->data) ? "true" : "false") + ",";
+			else if (json->type == Type::True) {
+				result += (isObj ? "\"" + json->name + "\":" : "") + "true,";
+			}
+			else if (json->type == Type::False) {
+				result += (isObj ? "\"" + json->name + "\":" : "") + "false,";
 			}
 			else if (json->type == Type::Null) {
 				result += (isObj ? "\"" + json->name + "\":" : "") + "null,";
@@ -609,6 +612,21 @@ namespace ZJSON {
 				return rs;
 			}
 
+			Json expect(const string &expected, Json res) {
+				if(i > 0){
+					i--;
+					if (str.compare(i, expected.length(), expected) == 0) {
+						i += expected.length();
+						return res;
+					} else {
+						return fail("parse error: expected " + expected + ", got " + str.substr(i, expected.length()));
+					}
+				}else{
+					return Json(Type::Error);
+				}
+				
+			}
+
 			string parse_string() {
 				string out;
 				long last_escaped_codepoint = -1;
@@ -700,14 +718,14 @@ namespace ZJSON {
 					return parse_number();
 				}
 
-				// if (ch == 't')
-				// 	return expect("true", true);
+				if (ch == 't')
+					return expect("true", Json(Type::True));
 
-				// if (ch == 'f')
-				// 	return expect("false", false);
+				if (ch == 'f')
+					return expect("false", Json(Type::False));
 
-				// if (ch == 'n')
-				// 	return expect("null", Json());
+				if (ch == 'n')
+					return expect("null", Json(Type::Null));
 
 				if (ch == '"'){
 					Json jsonString(Type::String);
