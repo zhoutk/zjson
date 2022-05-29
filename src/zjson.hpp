@@ -80,20 +80,11 @@ namespace ZJSON {
 		}
 
 		Json(string jsonStr) : Json(Type::Error){
-			compactJsonString(jsonStr);
-			parse(this, jsonStr, 0, 0, this->type == Type::Object);
+			string err;
+			*this = parse(jsonStr, err);
 		}
 
-		bool parse(Json * rs, const string& src, int index, int deep = 0, bool isObj = true){
-			if(deep == 0){
-				if(src[index] == '{'){
-					getJsonObject(rs, src, ++index);
-				}
-			}else{
 
-			}
-			return true;
-		}
 
 		bool getJsonObject(Json* rs, const string& src, int& index){
 			if(src[index] == '"'){
@@ -101,10 +92,6 @@ namespace ZJSON {
 				int quotationNext = src.find_first_of('"', colonIndex + 2);
 			}
 			return true;
-		}
-
-		void compactJsonString(string& str){
-
 		}
 
 		~Json(){
@@ -657,15 +644,21 @@ namespace ZJSON {
 				if (failed)
 					return Json(Type::Error);
 
-				if (ch == '"')
-            		return parse_string();
+				if (ch == '"'){
+					Json jsonString(Type::String);
+					jsonString.data = parse_string();
+					return jsonString;
+				}
 
 				if (ch == '{') {
-					Json data;
+					Json data(Type::Object);
+					data.child = new Json(Type::Error);
+					Json* cur = data.child;
 					ch = get_next_token();
 					if (ch == '}')
 						return data;
 
+					int count = 1;
 					while (1) {
 						if (ch != '"')
 							return fail("expected '\"' in object, got " + esc(ch));
@@ -678,7 +671,13 @@ namespace ZJSON {
 						if (ch != ':')
 							return fail("expected ':' in object, got " + esc(ch));
 
-						data[std::move(key)] = parse_json(depth + 1);
+						if (count == 1)
+						{
+							*cur = parse_json(depth + 1);
+						}else{
+							*cur->brother = parse_json(depth + 1);
+						}
+
 						if (failed)
 							return Json();
 
