@@ -68,30 +68,19 @@ namespace ZJSON {
 		Json(const Json& origin) {
 			this->brother = nullptr;
 			this->child = nullptr;
+			this->type = origin.type;
 			if(origin.type == Type::Array || origin.type == Type::Object){
 				this->name = "";
-				this->type = origin.type;
-				addSubJson(this, origin.name, origin.child);
+				addSubJson(this, origin.child->name, origin.child);
 			}else{
 				this->name = origin.name;
 				this->data = origin.data;
-				this->type = origin.type;
 			}
 		}
 
 		Json(string jsonStr) : Json(Type::Error){
 			string err;
 			*this = parse(jsonStr, err);
-		}
-
-
-
-		bool getJsonObject(Json* rs, const string& src, int& index){
-			if(src[index] == '"'){
-				int colonIndex = src.find_first_of(':', index);
-				int quotationNext = src.find_first_of('"', colonIndex + 2);
-			}
-			return true;
 		}
 
 		~Json(){
@@ -757,7 +746,7 @@ namespace ZJSON {
 						cur->name = key;
 
 						if (failed)
-							return Json();
+							return Json(Type::Error);
 
 						ch = get_next_token();
 						if (ch == '}')
@@ -781,19 +770,8 @@ namespace ZJSON {
 						return data;
 
 					while (1) {
-						if (ch != '"')
-							return fail("expected '\"' in object, got " + esc(ch));
-
-						string key = parse_string();
-						if (failed)
-							return Json(Type::Error);
-
-						ch = get_next_token();
-						if (ch != ':')
-							return fail("expected ':' in object, got " + esc(ch));
-
+						i--;
 						*cur = parse_json(depth + 1);
-						cur->name = key;
 
 						if (failed)
 							return Json(Type::Error);

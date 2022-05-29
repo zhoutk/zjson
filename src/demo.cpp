@@ -7,12 +7,13 @@ using namespace ZJSON;
 
 int main(int argc, char* argv[])
 {
-	string str = "{\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"}";
+	//string str = "{\"array\":[\"first\",90.12387,null,2,true],\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"}";
+	string str = "{\"age\":10,\"array\":[\"first\"]}"; //,\"true\":true
 	Json objStr(str);
 	std::cout << "parse a object string : " << objStr.toString() << std::endl;
-	str = "[\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"]";
-	Json arrStr(str);
-	std::cout << "parse a array string : " << arrStr.toString() << std::endl;
+	// str = "[\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"]";
+	// Json arrStr(str);
+	// std::cout << "parse a array string : " << arrStr.toString() << std::endl;
 	// for(int i = 0; i < 1; i++) {
 	// 	Json ajson(JsonType::Object);
 	// 	std::string data = "kevin";
