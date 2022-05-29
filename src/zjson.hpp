@@ -772,6 +772,45 @@ namespace ZJSON {
 					return data;
 				}
 
+				if (ch == '[') {
+					Json data(Type::Array);
+					data.child = new Json(Type::Error);
+					Json* cur = data.child;
+					ch = get_next_token();
+					if (ch == ']')
+						return data;
+
+					while (1) {
+						if (ch != '"')
+							return fail("expected '\"' in object, got " + esc(ch));
+
+						string key = parse_string();
+						if (failed)
+							return Json(Type::Error);
+
+						ch = get_next_token();
+						if (ch != ':')
+							return fail("expected ':' in object, got " + esc(ch));
+
+						*cur = parse_json(depth + 1);
+						cur->name = key;
+
+						if (failed)
+							return Json(Type::Error);
+
+						ch = get_next_token();
+						if (ch == ']')
+							break;
+						if (ch != ',')
+							return fail("expected ',' in object, got " + esc(ch));
+
+						cur->brother = new Json(Type::Error);
+						cur = cur->brother;
+						ch = get_next_token();
+					}
+					return data;
+				}
+
 				return fail("expected value, got " + esc(ch));
 			}
 

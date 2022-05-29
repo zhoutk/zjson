@@ -8,8 +8,11 @@ using namespace ZJSON;
 int main(int argc, char* argv[])
 {
 	string str = "{\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"}";
-	Json obj(str);
-	std::cout << "parse a json string : " << obj.toString() << std::endl;
+	Json objStr(str);
+	std::cout << "parse a object string : " << objStr.toString() << std::endl;
+	str = "[\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"]";
+	Json arrStr(str);
+	std::cout << "parse a array string : " << arrStr.toString() << std::endl;
 	// for(int i = 0; i < 1; i++) {
 	// 	Json ajson(JsonType::Object);
 	// 	std::string data = "kevin";
