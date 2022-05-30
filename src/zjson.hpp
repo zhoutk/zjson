@@ -71,7 +71,7 @@ namespace ZJSON {
 			this->child = nullptr;
 			this->type = origin.type;
 			if(origin.type == Type::Array || origin.type == Type::Object){
-				this->name = "";
+				this->name = origin.name;
 				addSubJson(this, origin.child->name, origin.child);
 			}else{
 				this->name = origin.name;
@@ -313,7 +313,7 @@ namespace ZJSON {
 					subObj->type = cur->type;
 					subObj->name = name;
 					appendNodeToJson(subObj, self);
-					addSubJson(subObj, "", cur->child);
+					addSubJson(subObj, cur->child->name, cur->child);
 				}
 				else
 				{
