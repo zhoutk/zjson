@@ -10,8 +10,9 @@
 简单的接口函数、简单的使用方法、灵活的数据结构、尽量支持链式操作。使用模板技术，得以完成最简设计，为Json对象增加值的方法只有两个，AddValueBase和AddValueJson。采用链表结构（向cJSON致敬）来存储Json对象，请看我下面的数据结构设计，表头与后面的结点，都用使用一致的结构，这使得在索引操作([])时，可以进行链式操作。
 
 ## 项目进度
-项目目前完成一半，可以新建Json对象，增加数据，按key(Object类型)或索引(Array类型)提取相应的值或子对象，生成json字符串。  
-已经做过内存泄漏测试，析构函数能正确运行，百万级别生成与销毁未见内存明显增长。  
+项目目前完成大部分主要功能，具体情况请看任务列表。可以新建Json对象，增加数据，按key(Object类型)或索引(Array类型)提取相应的值或子对象，生成json字符串，并且实现从json字符串构造Json对象。  
+已经做过内存泄漏测试，析构函数能正确运行，百万级别生成与销毁未见内存明显增长。
+编写了大量的单元测试用例，同时支持windws、linux和mac主流操作系统。  
 任务列表：
 - [x] 构造函数、复制构造函数、析构函数
 - [x] AddValueBase（为Json对象增加值类型）、AddValueJson（为Json对象增加对象类型）
@@ -19,7 +20,7 @@
 - [x] toString(生成json字符串)
 - [x] toInt、toDouble、toFalse 等值类型转换
 - [x] isError、isNull、isArray 等节点类型判断
-- [ ] parse, 从json字符串生成Json对象;相应的构造函数
+- [x] parse, 从json字符串生成Json对象;相应的构造函数
 - [ ] Extend Json - 扩展对象
 - [ ] Remove[All] key  - 删除数据, 因为Json对象允许重复的key
 - [ ] findAll  - 查找全部, 因为Json对象允许重复的key
@@ -66,6 +67,7 @@ enum class JsonType
 接口列表
 - Json(JsonType type = JsonType::Object)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//默认构造函数，生成Object或Array类型的Json对象
 - Json(const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;&nbsp;//复制构造函数
+- Json(string jsonStr)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//反序列化构造函数
 - Json& operator = (const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//赋值操作
 - Json operator[](const int& index)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//Json数组对象元素查询
 - Json operator[](const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//Json Object 对象按key查询
