@@ -8,7 +8,9 @@ using namespace ZJSON;
 int main(int argc, char* argv[])
 {
 	//string str = "{\"array\":[\"first\",90.12387,null,2,true],\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"}";
-	string str = "{\"age\":10,\"array\":[\"first\"]}"; //,\"true\":true
+	//string str = "{\"age\":10,\"array\":[\"first\",null],\"true\":true}"; //,\"true\":true
+	//string str = "{\"long\":123,\"longlong\":56789,\"sex\":true,\"name\":\"kevin\",\"school-cn\":\"第八十五中学\",\"subObjct\":{\"first\":\"this is the first.\",\"second obj\":{\"sub2-1\":\"the second sub object.\",\"sub2-2\":\"the second field.\"},\"a number\":666},\"school-en\":\"the 85th.\",\"age\":10,\"scores\":95.98,\"classroom\":9.012345,\"index\":54,\"nullkey\":null}";
+	string str = "{\"subObjct\":{\"first\":\"this is the first.\",\"second obj\":{\"array01\":[1]}}}";
 	Json objStr(str);
 	std::cout << "parse a object string : " << objStr.toString() << std::endl;
 	// str = "[\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"]";

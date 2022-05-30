@@ -304,32 +304,27 @@ namespace ZJSON {
 		void addSubJson(Json* self, string name, Json* obj) {
 			if(self == nullptr || obj == nullptr)
 				return;
-			if (obj->type == Type::Object || obj->type == Type::Array)
+			Json* cur = obj;
+			while (cur)
 			{
-				Json *subObj = new Json();
-				subObj->type = obj->type;
-				subObj->name = name;
-				appendNodeToJson(subObj, self);
-				if(obj->child)
-					addSubJson(subObj, "", obj->child);
-			}
-			else
-			{
-				Json* cur = obj;
-				while (cur)
-				{
-					if (cur->type == Type::Object || cur->type == Type::Array)
-						addSubJson(self, cur->name, cur);
-					else
-					{
-						Json *subContent = new Json();
-						subContent->type = cur->type;
-						subContent->name = cur->name;
-						subContent->data = cur->data;
-						appendNodeToJson(subContent, self);
-					}
-					cur = cur->brother;
+				if (cur->type == Type::Object || cur->type == Type::Array){
+					Json *subObj = new Json();
+					subObj->type = cur->type;
+					subObj->name = name;
+					appendNodeToJson(subObj, self);
+					addSubJson(subObj, "", cur->child);
 				}
+				else
+				{
+					Json *subContent = new Json();
+					subContent->type = cur->type;
+					subContent->name = cur->name;
+					subContent->data = cur->data;
+					appendNodeToJson(subContent, self);
+				}
+				cur = cur->brother;
+				if(cur)
+					name = cur->name;
 			}
 		}
 
