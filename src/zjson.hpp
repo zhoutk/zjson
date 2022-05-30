@@ -41,7 +41,8 @@ namespace ZJSON {
 				return parse(std::string(in), err);
 			} else {
 				err = "null input";
-				return nullptr;
+				Json rs(Type::Error);
+				return rs;
 			}
 		}
 
