@@ -112,10 +112,13 @@ namespace ZJSON {
 		Json operator[](const string& key) {
 			Json rs(Type::Error);
 			if(this->type == Type::Object) {
-				if(key.empty()){
+				if(key.empty() || this->child == nullptr){
 					return rs;
 				}else{
-					return this->child->find(key);
+					if(this->child->name == key)
+						return *(this->child);
+					else
+						return this->child->find(key);
 				}
 			}
 			else
