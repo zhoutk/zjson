@@ -15,16 +15,17 @@
 编写了大量的单元测试用例，同时支持windws、linux和mac主流操作系统。  
 任务列表：
 - [x] 构造函数
+- [x] JSON字符串反序列化构造函数
 - [x] 复制构造函数
 - [x] 析构函数
-- [x] AddValueBase（为Json对象增加值类型）
-- [x] AddValueJson（为Json对象增加对象类型）
 - [x] operator=
 - [x] operator[]
+- [x] AddValueBase（为Json对象增加值类型）
+- [x] AddValueJson（为Json对象增加对象类型）
 - [x] toString(生成json字符串)
 - [x] toInt、toDouble、toFalse 等值类型转换
 - [x] isError、isNull、isArray 等节点类型判断
-- [x] parse, 从json字符串生成Json对象;相应的构造函数
+- [x] parse, 从json字符串生成Json对象
 - [ ] Extend Json - 扩展对象
 - [ ] Remove[All] key  - 删除数据, 因为Json对象允许重复的key
 - [ ] findAll  - 查找全部, 因为Json对象允许重复的key
