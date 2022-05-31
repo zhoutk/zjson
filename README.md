@@ -14,9 +14,13 @@
 已经做过内存泄漏测试，析构函数能正确运行，百万级别生成与销毁未见内存明显增长。
 编写了大量的单元测试用例，同时支持windws、linux和mac主流操作系统。  
 任务列表：
-- [x] 构造函数、复制构造函数、析构函数
-- [x] AddValueBase（为Json对象增加值类型）、AddValueJson（为Json对象增加对象类型）
-- [x] operator=、operator[]
+- [x] 构造函数
+- [x] 复制构造函数
+- [x] 析构函数
+- [x] AddValueBase（为Json对象增加值类型）
+- [x] AddValueJson（为Json对象增加对象类型）
+- [x] operator=
+- [x] operator[]
 - [x] toString(生成json字符串)
 - [x] toInt、toDouble、toFalse 等值类型转换
 - [x] isError、isNull、isArray 等节点类型判断
