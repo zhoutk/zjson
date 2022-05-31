@@ -213,8 +213,9 @@ namespace ZJSON {
 		}
 
 		string toString() {
-			if (this->type == Type::Error)
+			if (this->type == Type::Error){
 				return "";
+			}
 			else {
 				string result;
 				this->toString(this, result, 0, this->type == Type::Object);
@@ -462,6 +463,7 @@ namespace ZJSON {
 			}
 
 			template <typename T> T fail(string &&msg, const T err_ret) {
+				std::cout << std::endl << " --- Error When Parsing --- " << msg << std::endl;
 				if (!failed)
 					err = std::move(msg);
 				failed = true;
@@ -795,10 +797,9 @@ namespace ZJSON {
 	Json Json::parse(const string &in, string &err) {
 		JsonParser parser { in, 0, err, false };
 		Json result = parser.parse_json(0);
-
+		if(result.type == Type::Error)
+			return result;
 		parser.consume_garbage();
-		if (parser.failed)
-			return Json();
 		if (parser.i != in.size())
 			return parser.fail("unexpected trailing " + esc(in[parser.i]));
 
