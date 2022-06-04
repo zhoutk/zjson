@@ -45,4 +45,8 @@ TEST(TestArray, test_array_1) {
 	string subEmpty = "[    \"JSON Test Pattern pass1\",    {\"object with 1 member\":[\"array with 1 element\"]},    {},    [],    -42]";
 	Json ArrSubEmpty(subEmpty);
 	EXPECT_EQ(ArrSubEmpty.toString(), "[\"JSON Test Pattern pass1\",{\"object with 1 member\":[\"array with 1 element\"]},{},[],-42]");
+
+	string eStr = "[12345.6789e-7,12345.6789e-3,12345.6789e2,12345.6789e8]";
+	Json objeStr(eStr);
+	EXPECT_EQ(objeStr.toString(), "[0.001235,12.345679,1234567.89,1234567890000]");
 }

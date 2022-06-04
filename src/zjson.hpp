@@ -417,8 +417,8 @@ namespace ZJSON {
 			else if (json->type == Type::Number) {
 				string intOrDoub = "";
 				double temp = std::get<double>(json->data);
-				if (temp == (int)temp)
-					intOrDoub = std::to_string((int)temp);
+				if (temp == (long long)temp)
+					intOrDoub = std::to_string((long long)temp);
 				else {
 					intOrDoub = std::to_string(temp);
 					intOrDoub.erase(intOrDoub.find_last_not_of('0') + 1);
