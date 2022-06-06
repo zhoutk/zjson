@@ -125,38 +125,25 @@ namespace ZJSON {
 				return rs;
 		}
 
-		bool AddValueJson(Json& obj){
-			if(this->type == Type::Array){
-				return AddValueJson("", obj);
-			}else{
-				return false;
-			}
-		}
-
-		bool AddValueJson(string name, Json& obj) {
-			if (this->type == Type::Object || this->type == Type::Array) {
-				addSubJson(this, this->type == Type::Object ? name : "", &obj);
-				return true;
-			}
-			else {
-				return false;
-			}
-		}
-
-		template<typename T> bool AddValueBase(T value) {
+		template<typename T> bool AddSubitem(T value) {
 			if(this->type == Type::Array)
-				return AddValueBase("", value);
+				return AddSubitem("", value);
 			else
 				return false;
 		}
 
-		template<typename T> bool AddValueBase(string name, T value) {
+		template<typename T> bool AddSubitem(string name, T value) {
 			if (this->type == Type::Object || this->type == Type::Array) {
+				std::any data = value;
 				string typeStr = GetTypeName(T);
 				std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
+
+				if(Utils::stringContain(typeStr, "ZJSON::Json")){
+					return AddValueJson(name, std::any_cast<Json>(data));
+				}
+
 				Json* node = new Json();
 				node->name = name;
-				std::any data = value;
 				if (Utils::stringEqualTo(typeStr, "int") || 
 					Utils::stringEqualTo(typeStr, "double") ||
 					Utils::stringEqualTo(typeStr, "char") ||
@@ -303,6 +290,16 @@ namespace ZJSON {
 			}
 			else {
 				self->child = node;
+			}
+		}
+
+		bool AddValueJson(string name, Json& obj) {
+			if (this->type == Type::Object || this->type == Type::Array) {
+				addSubJson(this, this->type == Type::Object ? name : "", &obj);
+				return true;
+			}
+			else {
+				return false;
 			}
 		}
 

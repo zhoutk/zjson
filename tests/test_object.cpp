@@ -13,27 +13,27 @@ TEST(TestObject, test_object_1) {
 	long l = 123;
 	long long ll = 56789;
 	Json sub;
-	EXPECT_EQ(sub.AddValueBase("first", "this is the first."), true);
+	EXPECT_EQ(sub.AddSubitem("first", "this is the first."), true);
 	Json subb;
-	EXPECT_EQ(subb.AddValueBase("sub2-1", "the second sub object."), true);
-	EXPECT_EQ(subb.AddValueBase("sub2-2", "the second field."), true);
-	EXPECT_EQ(sub.AddValueJson("second obj", subb), true);
-	EXPECT_EQ(sub.AddValueBase("a number", 666), true);
+	EXPECT_EQ(subb.AddSubitem("sub2-1", "the second sub object."), true);
+	EXPECT_EQ(subb.AddSubitem("sub2-2", "the second field."), true);
+	EXPECT_EQ(sub.AddSubitem("second obj", subb), true);
+	EXPECT_EQ(sub.AddSubitem("a number", 666), true);
 
-	EXPECT_EQ(ajson.AddValueBase("long", l), true);
-	EXPECT_EQ(ajson.AddValueBase("longlong", ll), true);
-	EXPECT_EQ(ajson.AddValueBase("sex", true), true);
-	EXPECT_EQ(ajson.AddValueBase("name", data), true);
-	EXPECT_EQ(ajson.AddValueBase("school-cn", "第八十五中学"), true);
+	EXPECT_EQ(ajson.AddSubitem("long", l), true);
+	EXPECT_EQ(ajson.AddSubitem("longlong", ll), true);
+	EXPECT_EQ(ajson.AddSubitem("sex", true), true);
+	EXPECT_EQ(ajson.AddSubitem("name", data), true);
+	EXPECT_EQ(ajson.AddSubitem("school-cn", "第八十五中学"), true);
 
-	EXPECT_TRUE(ajson.AddValueJson("subObjct", sub));
+	EXPECT_TRUE(ajson.AddSubitem("subObjct", sub));
 
-	EXPECT_EQ(ajson.AddValueBase("school-en", "the 85th."), true);
-	EXPECT_EQ(ajson.AddValueBase("age", 10), true);
-	EXPECT_EQ(ajson.AddValueBase("scores", 95.98), true);
-	EXPECT_EQ(ajson.AddValueBase("classroom", f), true);
-	EXPECT_EQ(ajson.AddValueBase("index", '6'), true);
-	EXPECT_EQ(ajson.AddValueBase("nullkey", nullptr), true);
+	EXPECT_EQ(ajson.AddSubitem("school-en", "the 85th."), true);
+	EXPECT_EQ(ajson.AddSubitem("age", 10), true);
+	EXPECT_EQ(ajson.AddSubitem("scores", 95.98), true);
+	EXPECT_EQ(ajson.AddSubitem("classroom", f), true);
+	EXPECT_EQ(ajson.AddSubitem("index", '6'), true);
+	EXPECT_EQ(ajson.AddSubitem("nullkey", nullptr), true);
 
 	EXPECT_EQ(ajson.toString(), "{\"long\":123,\"longlong\":56789,\"sex\":true,\"name\":\"kevin\",\"school-cn\":\"第八十五中学\",\"subObjct\":{\"first\":\"this is the first.\",\"second obj\":{\"sub2-1\":\"the second sub object.\",\"sub2-2\":\"the second field.\"},\"a number\":666},\"school-en\":\"the 85th.\",\"age\":10,\"scores\":95.98,\"classroom\":9.012345,\"index\":54,\"nullkey\":null}");
 

@@ -13,9 +13,13 @@ int main(int argc, char* argv[])
 	//string str = "{\"subObjct\":{\"first\":\"this is the first.\",\"second obj\":{\"array01\":[1,2,3,{\"sub3\":\"sub3-1\",\"sub3-next\":true}]}}}";
 	//string str = "[    \"JSON Test Pattern pass1\",    {\"object with 1 member\":[\"array with 1 element\"]},    {},    [],    -42]";
 	//string str = "[    \"JSON Test Pattern pass1\",    {\"object with 1 member\":[\"array with 1 element\"]},    {},    [],    -42,    true,    false,    null,    {        \"integer\": 1234567890,        \"real\": -9876.543210,        \"e\": 0.123456789e-12,        \"E\": 1.234567890E+34,        \"\":  23456789012E66,        \"zero\": 0,        \"one\": 1}]";
-	string str = "[12345.6789e-7,12345.6789e-3,12345.6789e2,12345.6789e8]";//12345.6789e-7,12345.6789e-3,12345.6789e2,
-	Json objStr(str);
-	std::cout << "parse a object string : " << objStr.toString() << std::endl;
+	Json sub(JsonType::Array);
+	sub.AddSubitem("this is the first.");
+	Json subb(JsonType::Array);
+	subb.AddSubitem("the second sub object.");
+	subb.AddSubitem("the second field.");
+	sub.AddSubitem("second obj", subb);
+	std::cout << "parse a object string : " << sub.toString() << std::endl;
 	// str = "[\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"]";
 	// Json arrStr(str);
 	// std::cout << "parse a array string : " << arrStr.toString() << std::endl;
@@ -25,39 +29,39 @@ int main(int argc, char* argv[])
 	// 	float f = 9.01234567;
 	// 	long l = 123;
 	// 	long long ll = 56789;
-	// 	ajson.AddValueBase("long", l);
-	// 	ajson.AddValueBase("longlong", ll);
-	// 	ajson.AddValueBase("sex", true);
-	// 	ajson.AddValueBase("falt", false);
-	// 	ajson.AddValueBase("name", data);
-	// 	ajson.AddValueBase("school-cn", "第八十五中学");
-	// 	ajson.AddValueBase("school-en", "the 85th.");
-	// 	ajson.AddValueBase("age", 10);
-	// 	ajson.AddValueBase("scores", 95.98);
-	// 	ajson.AddValueBase("classroom", f);
-	// 	ajson.AddValueBase("index", '6');
-	// 	ajson.AddValueBase("nullkey", nullptr);
+	// 	ajson.AddSubitem("long", l);
+	// 	ajson.AddSubitem("longlong", ll);
+	// 	ajson.AddSubitem("sex", true);
+	// 	ajson.AddSubitem("falt", false);
+	// 	ajson.AddSubitem("name", data);
+	// 	ajson.AddSubitem("school-cn", "第八十五中学");
+	// 	ajson.AddSubitem("school-en", "the 85th.");
+	// 	ajson.AddSubitem("age", 10);
+	// 	ajson.AddSubitem("scores", 95.98);
+	// 	ajson.AddSubitem("classroom", f);
+	// 	ajson.AddSubitem("index", '6');
+	// 	ajson.AddSubitem("nullkey", nullptr);
 
 	// 	Json sub;
-	// 	sub.AddValueBase("math", 99);
+	// 	sub.AddSubitem("math", 99);
 	// 	ajson.AddValueJson("subJson", sub);
 
 	// 	Json subArray(JsonType::Array);
-	// 	subArray.AddValueBase("first", "I'm the first one.");
-	// 	subArray.AddValueBase("two", 2);
+	// 	subArray.AddSubitem("first", "I'm the first one.");
+	// 	subArray.AddSubitem("two", 2);
 	// 	Json subb;
-	// 	subb.AddValueBase("sbbbbb", "bbbbbbb");
+	// 	subb.AddSubitem("sbbbbb", "bbbbbbb");
 	// 	Json littleArray(JsonType::Array);
-	// 	littleArray.AddValueBase(888);
-	// 	littleArray.AddValueBase(999);
+	// 	littleArray.AddSubitem(888);
+	// 	littleArray.AddSubitem(999);
 	// 	Json sub2;
-	// 	sub2.AddValueBase("sb2", "second");
+	// 	sub2.AddSubitem("sb2", "second");
 	// 	littleArray.AddValueJson(sub2);
 	// 	subb.AddValueJson("arr", littleArray);
 	// 	subArray.AddValueJson("subObj", subb);
 	// 	ajson.AddValueJson("array", subArray);
 
-	// 	ajson.AddValueBase("scores", 95.98);
+	// 	ajson.AddSubitem("scores", 95.98);
 	// 	std::cout << "ajson's string is : " << ajson.toString() << std::endl;
 
 	// 	Json oper = ajson["sb2"];

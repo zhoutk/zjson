@@ -7,7 +7,7 @@
 本人姓名拼音第一个字母z加上josn，即得本项目名称zjson，没有其它任何意义。我将编写一系列以z开头的相关项目，命名是个很麻烦的事，因此采用了这种简单粗暴的方式。
 
 ## 设计思路 
-简单的接口函数、简单的使用方法、灵活的数据结构、尽量支持链式操作。使用模板技术，得以完成最简设计，为Json对象增加值的方法只有两个，AddValueBase和AddValueJson。采用链表结构（向cJSON致敬）来存储Json对象，请看我下面的数据结构设计，表头与后面的结点，都用使用一致的结构，这使得在索引操作([])时，可以进行链式操作。
+简单的接口函数、简单的使用方法、灵活的数据结构、尽量支持链式操作。使用模板技术，得以完成最简设计，为Json对象子对象的方法只需一个 ———— AddSubitem，该方法自动识别是值对象还是子Json对象。采用链表结构（向cJSON致敬）来存储Json对象，请看我下面的数据结构设计，表头与后面的结点，都用使用一致的结构，这使得在索引操作([])时，可以进行链式操作。
 
 ## 项目进度
 项目目前完成大部分主要功能，具体情况请看任务列表。可以新建Json对象，增加数据，按key(Object类型)或索引(Array类型)提取相应的值或子对象，生成json字符串，并且实现从json字符串构造Json对象。  
@@ -17,11 +17,11 @@
 - [x] 构造函数
 - [x] JSON字符串反序列化构造函数
 - [x] 复制构造函数
+- [ ] initializer_list构造函数
 - [x] 析构函数
 - [x] operator=
 - [x] operator[]
-- [x] AddValueBase（为Json对象增加值类型）
-- [x] AddValueJson（为Json对象增加对象类型）
+- [x] AddSubitem（为Json对象增加子对象）
 - [x] toString(生成json字符串)
 - [x] toInt、toDouble、toFalse 等值类型转换
 - [x] isError、isNull、isArray 等节点类型判断
@@ -76,10 +76,8 @@ enum class JsonType
 - Json& operator = (const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//赋值操作
 - Json operator[](const int& index)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//Json数组对象元素查询
 - Json operator[](const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//Json Object 对象按key查询
-- bool AddValueJson(Json& obj)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//增加子Json类对象类型, 只面向Array
-- bool AddValueJson(string name, Json& obj)&emsp;&emsp;&emsp;&nbsp;//增加子Json类对象类型，当obj为Array时，name会被忽略
-- template<typename T> bool AddValueBase(T value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//增加值对象类型，只面向Array
-- template<typename T> bool AddValueBase(string name, T value)  //增加值对象类型，当this为Array时，name会被忽略
+- template<typename T> bool AddSubitem(T value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//增加值对象类型，只面向Array
+- template<typename T> bool AddSubitem(string name, T value)  //增加值对象类型，当this为Array时，name会被忽略
 - string toString()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//Json对象序列化为字符串
 - bool isError()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//无效Json对象判定
 - bool isNull()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//null值判定
@@ -98,23 +96,23 @@ enum class JsonType
 ```
     Json ajson(JsonType::Object);                   //新建Object对象，输入参数可以省略
     std::string data = "kevin";                     
-    ajson.AddValueBase("fail", false);              //增加false值对象
-    ajson.AddValueBase("name", data);               //增加字符串值对象
-    ajson.AddValueBase("school-en", "the 85th.");   
-    ajson.AddValueBase("age", 10);                  //增加number值对象，此处为整数
-    ajson.AddValueBase("scores", 95.98);            //增加number值对象，此处为浮点数，还支持long,long long
-    ajson.AddValueBase("nullkey", nullptr);         //增加null值对象，需要送入nullptr， NULL会被认为是整数0
+    ajson.AddSubitem("fail", false);              //增加false值对象
+    ajson.AddSubitem("name", data);               //增加字符串值对象
+    ajson.AddSubitem("school-en", "the 85th.");   
+    ajson.AddSubitem("age", 10);                  //增加number值对象，此处为整数
+    ajson.AddSubitem("scores", 95.98);            //增加number值对象，此处为浮点数，还支持long,long long
+    ajson.AddSubitem("nullkey", nullptr);         //增加null值对象，需要送入nullptr， NULL会被认为是整数0
 
     Json sub;                                       //新建Object对象
-    sub.AddValueBase("math", 99);                 
+    sub.AddSubitem("math", 99);                 
     ajson.AddValueJson("subJson", sub);             //为ajson增加子Json类型对象，完成嵌套需要
 
     Json subArray(JsonType::Array);                 //新建Array对象，输入参数不可省略
-    subArray.AddValueBase("I'm the first one.");    //增加Array对象的字符串值子对象
-    subArray.AddValueBase("two", 2);                //增加Array对象的number值子对象，第一个参数会被忽略
+    subArray.AddSubitem("I'm the first one.");    //增加Array对象的字符串值子对象
+    subArray.AddSubitem("two", 2);                //增加Array对象的number值子对象，第一个参数会被忽略
     
     Json sub2;                            
-    sub2.AddValueBase("sb2", 222);
+    sub2.AddSubitem("sb2", 222);
 
     subArray.AddValueJson("subObj", sub2);          //为Array对象增加Object类子对象，完成嵌套需求
     
