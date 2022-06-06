@@ -139,7 +139,8 @@ namespace ZJSON {
 				std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
 
 				if(Utils::stringContain(typeStr, "ZJSON::Json")){
-					return AddValueJson(name, std::any_cast<Json>(data));
+					Json temp = std::any_cast<Json>(data);
+					return AddValueJson(name, temp);
 				}
 
 				Json* node = new Json();
