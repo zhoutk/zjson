@@ -14,7 +14,8 @@
 已经做过内存泄漏测试，析构函数能正确运行，百万级别生成与销毁未见内存明显增长。
 编写了大量的单元测试用例，同时支持windws、linux和mac主流操作系统。  
 任务列表：
-- [x] 构造函数
+- [x] 构造函数(Object & Array)
+- [x] 构造函数(值)
 - [x] JSON字符串反序列化构造函数
 - [x] 复制构造函数
 - [ ] initializer_list构造函数
@@ -71,6 +72,7 @@ enum class JsonType
 ```
 接口列表
 - Json(JsonType type = JsonType::Object)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//默认构造函数，生成Object或Array类型的Json对象
+- template<typename T> Json(T value, string key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//值构造函数
 - Json(const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;&nbsp;//复制构造函数
 - Json(string jsonStr)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//反序列化构造函数
 - Json& operator = (const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//赋值操作

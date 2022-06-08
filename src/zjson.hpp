@@ -66,6 +66,10 @@ namespace ZJSON {
 			this->type = (Type)type;
 		}
 
+		template<typename T> Json(T value, string key){
+			this = makeValueJson(value);
+		}
+
 		Json(const Json& origin) {
 			this->brother = nullptr;
 			this->child = nullptr;
@@ -134,73 +138,25 @@ namespace ZJSON {
 
 		template<typename T> bool AddSubitem(string name, T value) {
 			if (this->type == Type::Object || this->type == Type::Array) {
-				std::any data = value;
 				string typeStr = GetTypeName(T);
 				std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
 
 				if(Utils::stringContain(typeStr, "ZJSON::Json")){
+					std::any data = value;
 					Json temp = std::any_cast<Json>(data);
 					return AddValueJson(name, temp);
-				}
-
-				Json* node = new Json();
-				node->name = name;
-				if (Utils::stringEqualTo(typeStr, "int") || 
-					Utils::stringEqualTo(typeStr, "double") ||
-					Utils::stringEqualTo(typeStr, "char") ||
-					Utils::stringEqualTo(typeStr, "long") ||
-					Utils::stringEqualTo(typeStr, "__int64") ||
-					Utils::stringEqualTo(typeStr, "long long") ||
-					Utils::stringEqualTo(typeStr, "float")
-					) {
-					node->type = Type::Number;
-					double dd = 0.0;
-					if(Utils::stringEqualTo(typeStr, "int"))
-						dd = std::any_cast<int>(data);
-					else if(Utils::stringEqualTo(typeStr, "float"))
-						dd = std::any_cast<float>(data);
-					else if (Utils::stringEqualTo(typeStr, "char")) {
-						dd = std::any_cast<char>(data);
+				}else{
+					Json * node = makeValueJson(value, name, typeStr);
+					if(node->isError())
+						return false;
+					else{
+						appendNodeToJson(node);
+						return true;
 					}
-					else if (Utils::stringEqualTo(typeStr, "long"))
-						dd = std::any_cast<long>(data);
-					else if (Utils::stringEqualTo(typeStr, "__int64") || Utils::stringEqualTo(typeStr, "long long"))
-						dd = std::any_cast<long long>(data);
-					else
-						dd = std::any_cast<double>(data);
-					node->data = dd;
 				}
-				else if (Utils::stringStartWith(typeStr, "char const") || Utils::stringContain(typeStr, "::basic_string<")) {
-					node->type = Type::String;
-					string v;
-					if (Utils::stringStartWith(typeStr, "char const"))
-						v = std::any_cast<char const*>(data);
-					else
-						v = std::any_cast<string>(data);
-					node->data = v;
-				}
-				else if (Utils::stringEqualTo(typeStr, "bool")) {
-					bool dd = std::any_cast<bool>(data);
-					if (dd)
-						node->type = Type::True;
-					else
-						node->type = Type::False;
-					node->data = dd;
-				}
-				else if (Utils::stringContain(typeStr, "nullptr")) {
-					node->type = Type::Null;
-				}
-				else {
-					return false;
-				}
-				
-				appendNodeToJson(node);
-				
-				return true;
 			}
-			else {
-				return false;
-			}
+			else
+				return false;	
 		}
 
 		string toString() {
@@ -276,6 +232,66 @@ namespace ZJSON {
 		}
 
 	private:
+		template<typename T> Json* makeValueJson(T value, string name = "", string typeStr = ""){
+			if(typeStr.empty()){
+				typeStr = GetTypeName(T);
+				std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
+			}
+
+			Json* node = new Json();
+			std::any data = value;
+			node->name = name;
+			if (Utils::stringEqualTo(typeStr, "int") || 
+				Utils::stringEqualTo(typeStr, "double") ||
+				Utils::stringEqualTo(typeStr, "char") ||
+				Utils::stringEqualTo(typeStr, "long") ||
+				Utils::stringEqualTo(typeStr, "__int64") ||
+				Utils::stringEqualTo(typeStr, "long long") ||
+				Utils::stringEqualTo(typeStr, "float")
+				) {
+				node->type = Type::Number;
+				double dd = 0.0;
+				if(Utils::stringEqualTo(typeStr, "int"))
+					dd = std::any_cast<int>(data);
+				else if(Utils::stringEqualTo(typeStr, "float"))
+					dd = std::any_cast<float>(data);
+				else if (Utils::stringEqualTo(typeStr, "char")) {
+					dd = std::any_cast<char>(data);
+				}
+				else if (Utils::stringEqualTo(typeStr, "long"))
+					dd = std::any_cast<long>(data);
+				else if (Utils::stringEqualTo(typeStr, "__int64") || Utils::stringEqualTo(typeStr, "long long"))
+					dd = std::any_cast<long long>(data);
+				else
+					dd = std::any_cast<double>(data);
+				node->data = dd;
+			}
+			else if (Utils::stringStartWith(typeStr, "char const") || Utils::stringContain(typeStr, "::basic_string<")) {
+				node->type = Type::String;
+				string v;
+				if (Utils::stringStartWith(typeStr, "char const"))
+					v = std::any_cast<char const*>(data);
+				else
+					v = std::any_cast<string>(data);
+				node->data = v;
+			}
+			else if (Utils::stringEqualTo(typeStr, "bool")) {
+				bool dd = std::any_cast<bool>(data);
+				if (dd)
+					node->type = Type::True;
+				else
+					node->type = Type::False;
+				node->data = dd;
+			}
+			else if (Utils::stringContain(typeStr, "nullptr")) {
+				node->type = Type::Null;
+			}
+			else {
+				return new Json(Type::Error);
+			}
+			return node;
+		}
+
 		void appendNodeToJson(Json* node, Json * self = nullptr)
 		{
 			if (self == nullptr)
