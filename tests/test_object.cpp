@@ -48,4 +48,12 @@ TEST(TestObject, test_object_1) {
 	string o3str = "{    \"JSON Test Pattern pass3\": {        \"The outermost value\": \"must be an object or array.\",        \"In this test\": \"It is an object.\"    }}";
 	Json obj3Str(o3str);
 	EXPECT_EQ(obj3Str.toString(), "{\"JSON Test Pattern pass3\":{\"The outermost value\":\"must be an object or array.\",\"In this test\":\"It is an object.\"}}");
+
+	Json subArray(JsonType::Array);
+	subArray.AddSubitem("I'm the first one.");
+	subArray.AddSubitem(2);
+	Json sub2{{"math", 99},{"str", "a string."}};
+	subArray.AddSubitem(sub2);
+	Json initializerObj{{"fkey", false},{"strkey","ffffff"},{"nkey", nullptr}, {"n1", 2}, {"num2", 9.98}, {"okey", subArray}};
+	EXPECT_EQ(initializerObj.toString(), "{\"fkey\":false,\"strkey\":\"ffffff\",\"nkey\":null,\"n1\":2,\"num2\":9.98,\"okey\":[\"I'm the first one.\",2,{\"math\":99,\"str\":\"a string.\"}]}");
 }

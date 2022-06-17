@@ -66,8 +66,8 @@ namespace ZJSON {
 			this->type = (Type)type;
 		}
 
-		template<typename T> Json(T value, string key){
-			this = makeValueJson(value);
+		template<typename T> Json(T value, string key = ""){
+			*this = *makeValueJson(value);
 		}
 
 		Json(const Json& origin) {
@@ -83,9 +83,40 @@ namespace ZJSON {
 			}
 		}
 
-		Json(string jsonStr) : Json(Type::Error){
+		explicit Json(string jsonStr) : Json(Type::Error){
 			string err;
 			*this = parse(jsonStr, err);
+		}
+
+		explicit Json(std::initializer_list<std::pair<const std::string, Json>> values){
+			this->child = nullptr;
+			this->brother = nullptr;
+			this->type = Type::Object;
+			for(auto al : values){
+				switch (al.second.type)
+				{
+				case Type::False:
+					this->AddSubitem(al.first, false);
+					break;
+				case Type::True:
+					this->AddSubitem(al.first, true);
+					break;
+				case Type::Null:
+					this->AddSubitem(al.first, nullptr);
+					break;
+				case Type::Number:
+					this->AddSubitem(al.first, al.second.toDouble());
+					break;
+				case Type::String:
+					this->AddSubitem(al.first, al.second.toString());
+					break;
+				case Type::Object:
+				case Type::Array:
+					this->AddSubitem(al.first, al.second);
+				default:
+					break;
+				}
+			}
 		}
 
 		~Json(){
