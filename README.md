@@ -25,6 +25,7 @@
 - [x] AddSubitem（为Json对象增加子对象）
 - [x] toString(生成json字符串)
 - [x] toInt、toDouble、toFalse 等值类型转换
+- [ ] toArray、toVector
 - [x] isError、isNull、isArray 等节点类型判断
 - [x] parse, 从json字符串生成Json对象
 - [ ] Extend Json - 扩展对象
@@ -132,6 +133,18 @@ enum class JsonType
     int oper = ajson["sb2"].toInt();                //提取嵌套深层结构中的key为sb2的整数值，结果为：222
     Json operArr = ajson["array"];                  //提取key为array的数组对象
     string first = ajson["array"][0].toString();    //提取key为array的数组对象的序号为0的值，结果为：I'm the first one.
+```
+mulitListObj序列化后结果为：
+```
+{
+    "fkey": false,
+    "strkey": "ffffff",
+    "num2": 9.98,
+    "okey": {
+        "math": 99,
+        "str": "a string."
+    }
+}
 ```
 ajson序列化后结果为：
 ```
