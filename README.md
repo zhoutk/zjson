@@ -18,7 +18,7 @@
 - [x] 构造函数(值)
 - [x] JSON字符串反序列化构造函数
 - [x] 复制构造函数
-- [ ] initializer_list构造函数
+- [x] initializer_list构造函数
 - [x] 析构函数
 - [x] operator=
 - [x] operator[]
@@ -72,9 +72,10 @@ enum class JsonType
 ```
 接口列表
 - Json(JsonType type = JsonType::Object)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//默认构造函数，生成Object或Array类型的Json对象
-- template<typename T> Json(T value, string key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//值构造函数
+- template<typename T> Json(T value, string key="")&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//值构造函数
 - Json(const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;&nbsp;//复制构造函数
 - Json(string jsonStr)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//反序列化构造函数
+- explicit Json(std::initializer_list<std::pair<const std::string, Json>> values)&emsp;&emsp;&emsp;&emsp;&emsp;//initializer_list Object构造函数
 - Json& operator = (const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//赋值操作
 - Json operator[](const int& index)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//Json数组对象元素查询
 - Json operator[](const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//Json Object 对象按key查询
@@ -96,6 +97,11 @@ enum class JsonType
 ## 编程示例
 简单使用示例
 ```
+    Json subObject{{"math", 99},{"str", "a string."}};   //initializer_list方式构造Json对象
+
+    //initializer_list方式构造Json对象, 并且可以嵌套
+	Json mulitListObj{{"fkey", false},{"strkey","ffffff"},{"num2", 9.98}, {"okey", subObject}};
+
     Json ajson(JsonType::Object);                   //新建Object对象，输入参数可以省略
     std::string data = "kevin";                     
     ajson.AddSubitem("fail", false);              //增加false值对象
