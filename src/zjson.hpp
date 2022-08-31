@@ -160,6 +160,38 @@ namespace ZJSON {
 				return rs;
 		}
 
+		bool AddSubitem(std::initializer_list<Json> values){
+			if (this->type == Type::Array)
+				for (auto al : values)
+				{
+					switch (al.type)
+					{
+					case Type::False:
+						this->AddSubitem(false);
+						break;
+					case Type::True:
+						this->AddSubitem(true);
+						break;
+					case Type::Null:
+						this->AddSubitem(nullptr);
+						break;
+					case Type::Number:
+						this->AddSubitem(al.toDouble());
+						break;
+					case Type::String:
+						this->AddSubitem(al.toString());
+						break;
+					case Type::Object:
+					case Type::Array:
+						this->AddSubitem(al);
+					default:
+						break;
+					}
+				}
+			else
+				return false;
+		}
+
 		template<typename T> bool AddSubitem(T value) {
 			if(this->type == Type::Array)
 				return AddSubitem("", value);

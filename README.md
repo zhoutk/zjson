@@ -103,6 +103,9 @@ enum class JsonType
     //initializer_list方式构造Json对象, 并且可以嵌套
 	Json mulitListObj{{"fkey", false},{"strkey","ffffff"},{"num2", 9.98}, {"okey", subObject}};
 
+    Json subArray(JsonType::Array);                 //数组对象以initializer_list方式增加元素
+	subArray.AddSubitem({12,13,14,15});             //快速生成 [12,13,14,15] array json
+
     Json ajson(JsonType::Object);                   //新建Object对象，输入参数可以省略
     std::string data = "kevin";                     
     ajson.AddSubitem("fail", false);              //增加false值对象

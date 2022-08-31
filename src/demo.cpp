@@ -14,7 +14,7 @@ int main(int argc, char* argv[])
 	//string str = "[    \"JSON Test Pattern pass1\",    {\"object with 1 member\":[\"array with 1 element\"]},    {},    [],    -42]";
 	//string str = "[    \"JSON Test Pattern pass1\",    {\"object with 1 member\":[\"array with 1 element\"]},    {},    [],    -42,    true,    false,    null,    {        \"integer\": 1234567890,        \"real\": -9876.543210,        \"e\": 0.123456789e-12,        \"E\": 1.234567890E+34,        \"\":  23456789012E66,        \"zero\": 0,        \"one\": 1}]";
 	Json subArray(JsonType::Array);
-	subArray.AddSubitem("I'm the first one.");
+	subArray.AddSubitem({12,13,14,15});
 	subArray.AddSubitem(2);
 	Json sub2;
 	sub2.AddSubitem("math", 99);
