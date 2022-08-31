@@ -22,7 +22,7 @@
 - [x] 析构函数
 - [x] operator=
 - [x] operator[]
-- [x] AddSubitem（为Json对象增加子对象）
+- [x] AddSubitem（为Json对象增加子对象，为数组快增加元素）
 - [x] toString(生成json字符串)
 - [x] toInt、toDouble、toFalse 等值类型转换
 - [x] toVector 数组类型转换
@@ -94,7 +94,7 @@ enum class JsonType
 - float toFloat()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//值对象转为float
 - double toDouble()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//值对象转为double
 - bool toBool()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//值对象转为bool
-- vector<Json> toVector()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//数组对象转为vector
+- vector<Json> toVector()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//数组对象转为vector
     
 ## 编程示例
 简单使用示例
