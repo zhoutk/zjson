@@ -28,7 +28,7 @@
 - [x] toVector 数组类型转换
 - [x] isError、isNull、isArray 等节点类型判断
 - [x] parse, 从json字符串生成Json对象
-- [ ] Extend Json - 扩展对象
+- [x] Extend Json - 扩展对象
 - [ ] Remove[All] key  - 删除数据, 因为Json对象允许重复的key
 - [ ] findAll  - 查找全部, 因为Json对象允许重复的key
 - [ ] std::move语义
@@ -95,6 +95,7 @@ enum class JsonType
 - double toDouble()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//值对象转为double
 - bool toBool()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//值对象转为bool
 - vector&lt;Json&gt; toVector()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//数组对象转为vector
+- bool extend(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//对象扩展
     
 ## 编程示例
 简单使用示例

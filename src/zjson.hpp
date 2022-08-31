@@ -108,7 +108,7 @@ namespace ZJSON {
 					this->AddSubitem(al.first, al.second.toDouble());
 					break;
 				case Type::String:
-					this->AddSubitem(al.first, al.second.toString());
+					this->AddSubitem(al.first, std::get<std::string>(al.second.data));
 					break;
 				case Type::Object:
 				case Type::Array:
@@ -179,7 +179,7 @@ namespace ZJSON {
 						this->AddSubitem(al.toDouble());
 						break;
 					case Type::String:
-						this->AddSubitem(al.toString());
+						this->AddSubitem(std::get<std::string>(al.data));
 						break;
 					case Type::Object:
 					case Type::Array:
@@ -304,6 +304,40 @@ namespace ZJSON {
 				};
 			}else{
 				return rs;
+			}
+		}
+
+		bool extend(Json value){
+			if(this->type == Type::Object && value.type == Type::Object){
+				Json* cur = value.child;
+				while(cur) {
+					switch (cur->type)
+					{
+					case Type::False:
+						this->AddSubitem(cur->name, false);
+						break;
+					case Type::True:
+						this->AddSubitem(cur->name, true);
+						break;
+					case Type::Null:
+						this->AddSubitem(cur->name, nullptr);
+						break;
+					case Type::Number:
+						this->AddSubitem(cur->name, cur->toDouble());
+						break;
+					case Type::String:
+						this->AddSubitem(cur->name, std::get<std::string>(cur->data));
+						break;
+					case Type::Object:
+					case Type::Array:
+						this->AddSubitem(cur->name, *cur);
+					default:
+						break;
+					}
+					cur = cur->brother;
+				};
+			}else{
+				return false;
 			}
 		}
 
