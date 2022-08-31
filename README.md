@@ -25,7 +25,7 @@
 - [x] AddSubitem（为Json对象增加子对象）
 - [x] toString(生成json字符串)
 - [x] toInt、toDouble、toFalse 等值类型转换
-- [ ] toArray、toVector
+- [x] toVector 数组类型转换
 - [x] isError、isNull、isArray 等节点类型判断
 - [x] parse, 从json字符串生成Json对象
 - [ ] Extend Json - 扩展对象
@@ -94,6 +94,7 @@ enum class JsonType
 - float toFloat()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//值对象转为float
 - double toDouble()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//值对象转为double
 - bool toBool()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//值对象转为bool
+- vector<Json> toVector()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//数组对象转为vector
     
 ## 编程示例
 简单使用示例

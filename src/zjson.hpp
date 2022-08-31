@@ -294,6 +294,19 @@ namespace ZJSON {
 				return false;
 		}
 
+		std::vector<Json> toVector(){
+			std::vector<Json> rs;
+			if(this->type == Type::Array){
+				Json* cur = this->child;
+				while(cur) {
+					rs.push_back(*cur);
+					cur = cur->brother;
+				};
+			}else{
+				return rs;
+			}
+		}
+
 	private:
 		template<typename T> Json* makeValueJson(T value, string name = "", string typeStr = ""){
 			if(typeStr.empty()){
