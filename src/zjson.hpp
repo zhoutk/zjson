@@ -93,35 +93,14 @@ namespace ZJSON {
 			this->brother = nullptr;
 			this->type = Type::Object;
 			for(auto al : values){
-				switch (al.second.type)
-				{
-				case Type::False:
-					this->AddSubitem(al.first, false);
-					break;
-				case Type::True:
-					this->AddSubitem(al.first, true);
-					break;
-				case Type::Null:
-					this->AddSubitem(al.first, nullptr);
-					break;
-				case Type::Number:
-					this->AddSubitem(al.first, al.second.toDouble());
-					break;
-				case Type::String:
-					this->AddSubitem(al.first, std::get<std::string>(al.second.data));
-					break;
-				case Type::Object:
-				case Type::Array:
-					this->AddSubitem(al.first, al.second);
-				default:
-					break;
-				}
+				al.second.name = al.first;
+				this->extendItem(&al.second);
 			}
 		}
 
 		~Json(){
 			if(child){
-				DeleteJson(child);
+				deleteJson(child);
 				child = nullptr;
 			}
 		}
@@ -160,54 +139,34 @@ namespace ZJSON {
 				return rs;
 		}
 
-		bool AddSubitem(std::initializer_list<Json> values){
+		bool addSubitem(std::initializer_list<Json> values){
 			if (this->type == Type::Array)
 				for (auto al : values)
 				{
-					switch (al.type)
-					{
-					case Type::False:
-						this->AddSubitem(false);
-						break;
-					case Type::True:
-						this->AddSubitem(true);
-						break;
-					case Type::Null:
-						this->AddSubitem(nullptr);
-						break;
-					case Type::Number:
-						this->AddSubitem(al.toDouble());
-						break;
-					case Type::String:
-						this->AddSubitem(std::get<std::string>(al.data));
-						break;
-					case Type::Object:
-					case Type::Array:
-						this->AddSubitem(al);
-					default:
-						break;
-					}
+					this->extendItem(&al);
 				}
 			else
 				return false;
 		}
 
-		template<typename T> bool AddSubitem(T value) {
+		template<typename T> bool addSubitem(T value) {
 			if(this->type == Type::Array)
-				return AddSubitem("", value);
+				return addSubitem("", value);
 			else
 				return false;
 		}
 
-		template<typename T> bool AddSubitem(string name, T value) {
+		template<typename T> bool addSubitem(string name, T value) {
 			if (this->type == Type::Object || this->type == Type::Array) {
 				string typeStr = GetTypeName(T);
+				if(this->type == Type::Array)
+					name = "";
 				std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
 
 				if(Utils::stringContain(typeStr, "ZJSON::Json")){
 					std::any data = value;
 					Json temp = std::any_cast<Json>(data);
-					return AddValueJson(name, temp);
+					return addValueJson(name, temp);
 				}else{
 					Json * node = makeValueJson(value, name, typeStr);
 					if(node->isError())
@@ -311,37 +270,62 @@ namespace ZJSON {
 			if(this->type == Type::Object && value.type == Type::Object){
 				Json* cur = value.child;
 				while(cur) {
-					switch (cur->type)
-					{
-					case Type::False:
-						this->AddSubitem(cur->name, false);
-						break;
-					case Type::True:
-						this->AddSubitem(cur->name, true);
-						break;
-					case Type::Null:
-						this->AddSubitem(cur->name, nullptr);
-						break;
-					case Type::Number:
-						this->AddSubitem(cur->name, cur->toDouble());
-						break;
-					case Type::String:
-						this->AddSubitem(cur->name, std::get<std::string>(cur->data));
-						break;
-					case Type::Object:
-					case Type::Array:
-						this->AddSubitem(cur->name, *cur);
-					default:
-						break;
-					}
+					this->extendItem(cur);
 					cur = cur->brother;
-				};
+				}
 			}else{
 				return false;
 			}
 		}
 
+		bool concat(Json value){
+			if (this->type == Type::Array)
+			{
+				if (value.type == Type::Array || value.type == Type::Object)
+				{
+					Json *cur = value.child;
+					while (cur)
+					{
+						this->extendItem(cur);
+						cur = cur->brother;
+					}
+				}else{
+					this->extendItem(&value);
+				}
+			}
+			else
+			{
+				return false;
+			}
+		}
+
 	private:
+		void extendItem(Json* cur){
+			switch (cur->type)
+					{
+					case Type::False:
+						this->addSubitem(cur->name, false);
+						break;
+					case Type::True:
+						this->addSubitem(cur->name, true);
+						break;
+					case Type::Null:
+						this->addSubitem(cur->name, nullptr);
+						break;
+					case Type::Number:
+						this->addSubitem(cur->name, cur->toDouble());
+						break;
+					case Type::String:
+						this->addSubitem(cur->name, std::get<std::string>(cur->data));
+						break;
+					case Type::Object:
+					case Type::Array:
+						this->addSubitem(cur->name, *cur);
+					default:
+						break;
+					}
+		}
+
 		template<typename T> Json* makeValueJson(T value, string name = "", string typeStr = ""){
 			if(typeStr.empty()){
 				typeStr = GetTypeName(T);
@@ -420,7 +404,7 @@ namespace ZJSON {
 			}
 		}
 
-		bool AddValueJson(string name, Json& obj) {
+		bool addValueJson(string name, Json& obj) {
 			if (this->type == Type::Object || this->type == Type::Array) {
 				addSubJson(this, this->type == Type::Object ? name : "", &obj);
 				return true;
@@ -457,7 +441,7 @@ namespace ZJSON {
 			}
 		}
 
-		void DeleteJson(Json *obj) {		//all json type is value type
+		void deleteJson(Json *obj) {		//all json type is value type
 			Json *cur = obj;
 			Json *follow = obj;
 			do{
@@ -465,7 +449,7 @@ namespace ZJSON {
 				follow = follow->brother;
 				if (cur->type == Type::Object || cur->type == Type::Array) {
 					if (cur->child){
-						DeleteJson(cur->child);
+						deleteJson(cur->child);
 						cur->child = nullptr;
 					}
 				}

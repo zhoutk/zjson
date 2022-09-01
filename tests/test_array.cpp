@@ -13,27 +13,27 @@ TEST(TestArray, test_array_1) {
 	long l = 123;
 	long long ll = 56789;
 	Json sub(JsonType::Array);
-	EXPECT_EQ(sub.AddSubitem("this is the first."), true);
+	EXPECT_EQ(sub.addSubitem("this is the first."), true);
 	Json subb(JsonType::Array);
-	EXPECT_EQ(subb.AddSubitem("the second sub object."), true);
-	EXPECT_EQ(subb.AddSubitem("the second field."), true);
-	EXPECT_EQ(sub.AddSubitem("second obj", subb), true);
-	EXPECT_EQ(sub.AddSubitem("a number", 666), true);
+	EXPECT_EQ(subb.addSubitem("the second sub object."), true);
+	EXPECT_EQ(subb.addSubitem("the second field."), true);
+	EXPECT_EQ(sub.addSubitem("second obj", subb), true);
+	EXPECT_EQ(sub.addSubitem("a number", 666), true);
 
-	EXPECT_EQ(ajson.AddSubitem("long", l), true);
-	EXPECT_EQ(ajson.AddSubitem("longlong", ll), true);
-	EXPECT_EQ(ajson.AddSubitem("sex", true), true);
-	EXPECT_EQ(ajson.AddSubitem("name", data), true);
-	EXPECT_EQ(ajson.AddSubitem("school-cn", "第八十五中学"), true);
+	EXPECT_EQ(ajson.addSubitem("long", l), true);
+	EXPECT_EQ(ajson.addSubitem("longlong", ll), true);
+	EXPECT_EQ(ajson.addSubitem("sex", true), true);
+	EXPECT_EQ(ajson.addSubitem("name", data), true);
+	EXPECT_EQ(ajson.addSubitem("school-cn", "第八十五中学"), true);
 
-	EXPECT_TRUE(ajson.AddSubitem("subArray", sub));
+	EXPECT_TRUE(ajson.addSubitem("subArray", sub));
 
-	EXPECT_EQ(ajson.AddSubitem("school-en", "the 85th."), true);
-	EXPECT_EQ(ajson.AddSubitem("age", 10), true);
-	EXPECT_EQ(ajson.AddSubitem("scores", 95.98), true);
-	EXPECT_EQ(ajson.AddSubitem("classroom", f), true);
-	EXPECT_EQ(ajson.AddSubitem("index", '6'), true);
-	EXPECT_EQ(ajson.AddSubitem("nullkey", nullptr), true);
+	EXPECT_EQ(ajson.addSubitem("school-en", "the 85th."), true);
+	EXPECT_EQ(ajson.addSubitem("age", 10), true);
+	EXPECT_EQ(ajson.addSubitem("scores", 95.98), true);
+	EXPECT_EQ(ajson.addSubitem("classroom", f), true);
+	EXPECT_EQ(ajson.addSubitem("index", '6'), true);
+	EXPECT_EQ(ajson.addSubitem("nullkey", nullptr), true);
 
 	EXPECT_EQ(ajson.toString(), "[123,56789,true,\"kevin\",\"第八十五中学\",[\"this is the first.\",[\"the second sub object.\",\"the second field.\"],666],\"the 85th.\",10,95.98,9.012345,54,null]");
 	EXPECT_EQ(ajson[5].toString(), "[\"this is the first.\",[\"the second sub object.\",\"the second field.\"],666]");
@@ -49,4 +49,13 @@ TEST(TestArray, test_array_1) {
 	string eStr = "[12345.6789e-7,12345.6789e-3,12345.6789e2,12345.6789e8]";
 	Json objeStr(eStr);
 	EXPECT_EQ(objeStr.toString(), "[0.001235,12.345679,1234567.89,1234567890000]");
+
+	Json arrForCat(JsonType::Array);
+	arrForCat.addSubitem(2);
+	arrForCat.addSubitem({12,13,14,15});
+	Json subForCat(JsonType::Array);
+	subForCat.addSubitem("math", 99);
+	subForCat.addSubitem("str", 100);
+	arrForCat.concat(subForCat);
+	EXPECT_EQ(arrForCat.toString(), "[2,12,13,14,15,99,100]");
 }
