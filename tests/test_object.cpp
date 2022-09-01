@@ -68,4 +68,40 @@ TEST(TestObject, test_object_1) {
 	sub12.addSubitem("sub3", sub13);
 	sub11.extend(sub12);
 	EXPECT_EQ(sub11.toString(),"{\"yuwen\":88,\"hx\":90,\"math\":99,\"str\":\"a string.\",\"sub3\":{\"music\":95}}");
+
+	Json sub20;
+	sub20.addSubitem("yuwen", 66);
+	sub20.addSubitem("draw", 11);
+	sub20.addSubitem("hx", 90);
+	Json sub21(JsonType::Array);
+	sub21.addSubitem("math", 99);
+	sub21.addSubitem("str", 100);
+	Json sub22;
+	sub22.addSubitem("music", 95);
+	sub22.addSubitem("draw", 88);
+	sub20.addSubitem("sub3", sub22);
+	sub20.addSubitem("arr", sub21);
+	sub20.remove("yuwen");
+	EXPECT_EQ(sub20.toString(),"{\"draw\":11,\"hx\":90,\"sub3\":{\"music\":95,\"draw\":88},\"arr\":[99,100]}");
+
+	sub20.addSubitem("yuwen", 66);
+	sub20.remove("hx");
+	EXPECT_EQ(sub20.toString(),"{\"draw\":11,\"sub3\":{\"music\":95,\"draw\":88},\"arr\":[99,100],\"yuwen\":66}");
+
+	sub20.addSubitem("hx", 90);
+	sub20.remove("sub3");
+	EXPECT_EQ(sub20.toString(),"{\"draw\":11,\"arr\":[99,100],\"yuwen\":66,\"hx\":90}");
+
+	sub20.addSubitem("sub3", sub22);
+	sub20.remove("arr");
+	EXPECT_EQ(sub20.toString(),"{\"draw\":11,\"yuwen\":66,\"hx\":90,\"sub3\":{\"music\":95,\"draw\":88}}");
+
+	sub20.addSubitem("arr", sub21);
+	sub20.remove("music");
+	EXPECT_EQ(sub20.toString(),"{\"draw\":11,\"yuwen\":66,\"hx\":90,\"sub3\":{\"draw\":88},\"arr\":[99,100]}");
+
+	sub20.remove("sub3");
+	sub20.addSubitem("sub3", sub22);
+	sub20.remove("draw");
+	EXPECT_EQ(sub20.toString(),"{\"yuwen\":66,\"hx\":90,\"arr\":[99,100],\"sub3\":{\"music\":95}}");
 }

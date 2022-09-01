@@ -22,7 +22,7 @@
 - [x] 析构函数
 - [x] operator=
 - [x] operator[]
-- [x] addSubitem（为Json对象增加子对象，为数组快增加元素）
+- [x] addSubitem（为Json对象增加子对象，为数组快速增加元素）
 - [x] toString(生成json字符串)
 - [x] toInt、toDouble、toFalse 等值类型转换
 - [x] toVector 数组类型转换
@@ -30,8 +30,7 @@
 - [x] parse, 从json字符串生成Json对象
 - [x] Extend Json - 扩展对象
 - [x] concat Json - 数组扩展 
-- [ ] Remove[All] key  - 删除数据, 因为Json对象允许重复的key
-- [ ] findAll  - 查找全部, 因为Json对象允许重复的key
+- [x] Remove key  - 删除数据, 因为Json对象允许重复的key
 - [ ] std::move语义
 - [ ] 递归版性能测试与对比
 - [ ] 算法非递归化
@@ -98,6 +97,7 @@ enum class JsonType
 - vector&lt;Json&gt; toVector()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//数组对象转为vector
 - bool extend(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//对象扩展
 - bool concat(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组扩展
+- void remove(const string &key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//删除键值
     
 ## 编程示例
 简单使用示例

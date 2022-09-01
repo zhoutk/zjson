@@ -299,6 +299,58 @@ namespace ZJSON {
 			}
 		}
 
+		void remove(const string &key, Json *self = nullptr, Json* prev = nullptr)
+		{
+			if (key.empty() || (self == nullptr && this->type != Type::Object))
+				return ;
+			if (self == nullptr)
+				self = this;
+			Json *cur = self;
+			Json *pre = self;
+			if (prev)
+				pre = prev;
+			bool found = false;
+			do
+			{
+				if (cur->name == key)
+				{
+					if (cur->type == Type::Array || cur->type == Type::Object){
+						pre->brother = cur->brother;
+					}
+					else if(pre->type == Type::Array || pre->type == Type::Object)
+						pre->child = cur->brother;
+					else
+						pre->brother = cur->brother;
+					found = true;
+				}
+				else if (cur->type == Type::Object || cur->type == Type::Array)
+				{
+					if (cur->child)
+					{
+						remove(key, cur->child, cur);
+					}
+				}
+				if (found)
+				{
+					auto tmp = pre->brother ? pre->brother->brother : (cur->brother ? cur->brother : nullptr);
+					if (cur->child)
+						deleteJson(cur->child);
+					cur->child = nullptr;
+					cur->brother = nullptr;
+					delete cur;
+					cur = tmp;
+					//pre->brother = cur;
+					found = false;
+				}
+				else
+				{
+					pre = cur;
+					cur = cur->brother;
+				}
+
+			} while (cur);
+		}
+
 	private:
 		void extendItem(Json* cur){
 			switch (cur->type)
@@ -476,7 +528,7 @@ namespace ZJSON {
 		Json find(const string& key, bool notArray = true){
 			if(this->type == Type::Array || this->type == Type::Object){
 				if(this->child)
-					return this->child->find(key, notArray);
+					return this->child->find(key, this->type != Type::Array);
 				else
 					return Json(Type::Error);
 			}else{
