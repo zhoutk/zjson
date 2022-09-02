@@ -17,19 +17,23 @@ int main(int argc, char* argv[])
 	// subArray.addSubitem(2);
 	// subArray.addSubitem({12,13,14,15});
 	// std::vector<Json> sub = subArray.toVector();
+	std::vector<Json> arr;
 	Json sub;
 	sub.addSubitem("yuwen", 66);
 	sub.addSubitem("draw", 11);
 	sub.addSubitem("hx", 90);
+	arr.push_back(sub);
 	Json sub2(JsonType::Array);
 	sub2.addSubitem("math", 99);
 	sub2.addSubitem("str", 100);
+	arr.push_back(sub2);
 	Json sub3;
 	sub3.addSubitem("music", 95);
 	sub3.addSubitem("draw", 88);
-	sub.addSubitem("sub3", sub3);
-	sub.addSubitem("arr", sub2);
-	sub.remove("draw");
+	arr.push_back(sub3);
+
+	Json rs;
+	rs.addSubitem("data", arr);
 	//  subArray.concat(sub2);
 	 //Json sub{{"fkey", false},{"strkey","ffffff"},{"nkey", nullptr}, {"n1", 2}, {"num2", 9.98}, {"okey", subArray}};
 	// sub.addSubitem("this is the first.");
@@ -37,7 +41,7 @@ int main(int argc, char* argv[])
 	// subb.addSubitem("the second sub object.");
 	// subb.addSubitem("the second field.");
 	// sub.addSubitem("second obj", subb);
-	std::cout << "parse a object string : " << sub.toString() << std::endl;
+	std::cout << "parse a object string : " << rs.toString() << std::endl;
 	// str = "[\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"]";
 	// Json arrStr(str);
 	// std::cout << "parse a array string : " << arrStr.toString() << std::endl;

@@ -104,4 +104,23 @@ TEST(TestObject, test_object_1) {
 	sub20.addSubitem("sub3", sub22);
 	sub20.remove("draw");
 	EXPECT_EQ(sub20.toString(),"{\"yuwen\":66,\"hx\":90,\"arr\":[99,100],\"sub3\":{\"music\":95}}");
+
+	std::vector<Json> arr;
+	Json sub31;
+	sub31.addSubitem("yuwen", 66);
+	sub31.addSubitem("draw", 11);
+	sub31.addSubitem("hx", 90);
+	arr.push_back(sub31);
+	Json sub32(JsonType::Array);
+	sub32.addSubitem("math", 99);
+	sub32.addSubitem("str", 100);
+	arr.push_back(sub32);
+	Json sub33;
+	sub33.addSubitem("music", 95);
+	sub33.addSubitem("draw", 88);
+	arr.push_back(sub33);
+
+	Json rs;
+	rs.addSubitem("data", arr);
+	EXPECT_EQ(rs.toString(),"{\"data\":[{\"yuwen\":66,\"draw\":11,\"hx\":90},[99,100],{\"music\":95,\"draw\":88}]}");
 }

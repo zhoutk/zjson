@@ -181,6 +181,19 @@ namespace ZJSON {
 				return false;	
 		}
 
+		bool addSubitem(string name, std::vector<Json> items){
+			if (this->type == Type::Object){
+				Json arr(Type::Array);
+				for (Json item : items)
+				{
+					arr.addSubitem(item);
+				}
+				return this->addSubitem(name, arr);
+			}else{
+				return false;
+			}
+		}
+
 		string toString() {
 			if (this->type == Type::Error){
 				return "";
@@ -273,6 +286,7 @@ namespace ZJSON {
 					this->extendItem(cur);
 					cur = cur->brother;
 				}
+				return true;
 			}else{
 				return false;
 			}
