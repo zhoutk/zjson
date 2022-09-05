@@ -35,7 +35,18 @@ namespace ZJSON {
 		std::variant <int, bool, double, string> data;
 		string name;
 
-		static Json parse(const std::string & in, std::string & err);
+		static Json parse(const std::string &in, std::string &err)
+		{
+			JsonParser parser{in, 0, err, false};
+			Json result = parser.parse_json(0);
+			if (result.type == Type::Error)
+				return result;
+			parser.consume_garbage();
+			if (parser.i != in.size())
+				return parser.fail("unexpected trailing " + esc(in[parser.i]));
+			return result;
+		}
+
 		static Json parse(const char * in, std::string & err) {
 			if (in) {
 				return parse(std::string(in), err);
@@ -154,12 +165,12 @@ namespace ZJSON {
 			if(this->type == Type::Object){
 				Json* cur = this->child;
 				while (cur){
-					rs.push_back(cur->name);
+					if(cur->type != Type::Error && cur->name.length() > 0)
+						rs.push_back(cur->name);
 					cur = cur->brother;
 				}
-			}else{
-				return rs;
 			}
+			return rs;
 		}
 
 		bool addSubitem(std::initializer_list<Json> values){
@@ -1003,15 +1014,4 @@ namespace ZJSON {
 
 	};
 
-	Json Json::parse(const string &in, string &err) {
-		JsonParser parser { in, 0, err, false };
-		Json result = parser.parse_json(0);
-		if(result.type == Type::Error)
-			return result;
-		parser.consume_garbage();
-		if (parser.i != in.size())
-			return parser.fail("unexpected trailing " + esc(in[parser.i]));
-
-		return result;
-	}
 }
