@@ -1,11 +1,11 @@
 #pragma once
-#include <string>
 #include "utils.hpp"
+#include <string>
 #include <variant>
 #include <any>
+#include <iostream>
 
 namespace ZJSON {
-
 	static const int max_depth = 100;
 
     using std::string;
@@ -257,6 +257,10 @@ namespace ZJSON {
 
 		bool isFalse(){
 			return this->type == Type::False;
+		}
+
+		bool isString(){
+			return this->type == Type::String;
 		}
 
 		float toFloat(){

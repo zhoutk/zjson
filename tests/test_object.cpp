@@ -135,4 +135,5 @@ TEST(TestObject, test_object_1) {
 	for(auto al : allKeys)
 		allKeyString.append(al);
 	EXPECT_EQ(allKeyString, "drawhx");
+
 }
