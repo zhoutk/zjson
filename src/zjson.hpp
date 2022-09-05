@@ -76,7 +76,7 @@ namespace ZJSON {
 			this->type = origin.type;
 			if(origin.type == Type::Array || origin.type == Type::Object){
 				this->name = origin.name;
-				addSubJson(this, origin.child->name, origin.child);
+				addSubJson(this, origin.child ? origin.child->name : "", origin.child);
 			}else{
 				this->name = origin.name;
 				this->data = origin.data;
@@ -205,6 +205,8 @@ namespace ZJSON {
 		}
 
 		bool addSubitem(string name, std::vector<Json> items){
+			if(items.empty())
+				return true;
 			if (this->type == Type::Object){
 				Json arr(Type::Array);
 				for (Json item : items)
@@ -310,6 +312,7 @@ namespace ZJSON {
 			if(this->type == Type::Object && value.type == Type::Object){
 				Json* cur = value.child;
 				while(cur) {
+					this->remove(cur->name);
 					this->extendItem(cur);
 					cur = cur->brother;
 				}
@@ -453,12 +456,12 @@ namespace ZJSON {
 					dd = std::any_cast<double>(data);
 				node->data = dd;
 			}
-			else if (Utils::stringStartWith(typeStr, "char *") || Utils::stringStartWith(typeStr, "char const") || Utils::stringContain(typeStr, "::basic_string<")) {
+			else if (Utils::stringStartWith(typeStr, "char*") || Utils::stringStartWith(typeStr, "char *") || Utils::stringStartWith(typeStr, "char const") || Utils::stringContain(typeStr, "::basic_string<")) {
 				node->type = Type::String;
 				string v;
 				if (Utils::stringStartWith(typeStr, "char const"))
 					v = std::any_cast<char const*>(data);
-				else if (Utils::stringStartWith(typeStr, "char *"))
+				else if (Utils::stringStartWith(typeStr, "char*") || Utils::stringStartWith(typeStr, "char *"))
 					v = std::any_cast<char *>(data);
 				else
 					v = std::any_cast<string>(data);
