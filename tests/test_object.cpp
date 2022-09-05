@@ -123,4 +123,16 @@ TEST(TestObject, test_object_1) {
 	Json rs;
 	rs.addSubitem("data", arr);
 	EXPECT_EQ(rs.toString(),"{\"data\":[{\"yuwen\":66,\"draw\":11,\"hx\":90},[99,100],{\"music\":95,\"draw\":88}]}");
+
+	EXPECT_TRUE(sub31.contains("hx"));
+	EXPECT_FALSE(sub31.contains("hhxx"));
+
+	EXPECT_EQ(sub31.getAndRemove("yuwen").toInt(), 66);
+	EXPECT_EQ(sub31.toString(), "{\"draw\":11,\"hx\":90}");
+
+	auto allKeys = sub31.getAllKeys();
+	std::string allKeyString = "";
+	for(auto al : allKeys)
+		allKeyString.append(al);
+	EXPECT_EQ(allKeyString, "drawhx");
 }

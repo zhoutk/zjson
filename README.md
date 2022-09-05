@@ -22,6 +22,9 @@
 - [x] 析构函数
 - [x] operator=
 - [x] operator[]
+- [x] contains
+- [x] getAndRemove
+- [x] getAllKeys
 - [x] addSubitem（为Json对象增加子对象，为数组快速增加元素）
 - [x] toString(生成json字符串)
 - [x] toInt、toDouble、toFalse 等值类型转换
@@ -98,6 +101,9 @@ enum class JsonType
 - bool extend(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//对象扩展
 - bool concat(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组扩展
 - void remove(const string &key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//删除键值
+- bool contains(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//判断key是否存在
+- Json getAndRemove(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取并删除
+- std::vector<std::string> getAllKeys()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取所有key
     
 ## 编程示例
 简单使用示例

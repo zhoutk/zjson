@@ -139,6 +139,29 @@ namespace ZJSON {
 				return rs;
 		}
 
+		bool contains(const string& key){
+			return !((*this)[key].type == Type::Error);
+		}
+
+		Json getAndRemove(const string& key){
+			Json rs = (*this)[key];
+			this->remove(key);
+			return rs;
+		}
+
+		std::vector<std::string> getAllKeys(){
+			std::vector<std::string> rs;
+			if(this->type == Type::Object){
+				Json* cur = this->child;
+				while (cur){
+					rs.push_back(cur->name);
+					cur = cur->brother;
+				}
+			}else{
+				return rs;
+			}
+		}
+
 		bool addSubitem(std::initializer_list<Json> values){
 			if (this->type == Type::Array)
 				for (auto al : values)
