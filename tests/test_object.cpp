@@ -136,4 +136,12 @@ TEST(TestObject, test_object_1) {
 		allKeyString.append(al);
 	EXPECT_EQ(allKeyString, "drawhx");
 
+	Json jsEmpty("{}");
+	EXPECT_EQ(jsEmpty.toString(), "{}");
+
+	auto emptyKeys = jsEmpty.getAllKeys();
+	std::string emptyKeyString = "";
+	for(auto al : emptyKeys)
+		emptyKeyString.append(al);
+	EXPECT_EQ(emptyKeyString, "");
 }

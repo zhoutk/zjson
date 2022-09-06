@@ -184,7 +184,7 @@ namespace ZJSON {
 				string typeStr = GetTypeName(T);
 				if(this->type == Type::Array)
 					name = "";
-				std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
+				//std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
 
 				if(Utils::stringContain(typeStr, "ZJSON::Json")){
 					std::any data = value;
@@ -425,7 +425,7 @@ namespace ZJSON {
 		template<typename T> Json* makeValueJson(T value, string name = "", string typeStr = ""){
 			if(typeStr.empty()){
 				typeStr = GetTypeName(T);
-				std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
+				//std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
 			}
 
 			Json* node = new Json();
@@ -672,7 +672,7 @@ namespace ZJSON {
 			}
 
 			template <typename T> T fail(string &&msg, const T err_ret) {
-				std::cout << std::endl << " --- Error When Parsing --- " << msg << std::endl;
+				//std::cout << std::endl << " --- Error When Parsing --- " << msg << std::endl;
 				if (!failed)
 					err = std::move(msg);
 				failed = true;
