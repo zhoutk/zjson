@@ -230,20 +230,6 @@ namespace ZJSON {
 			}
 		}
 
-		string toString() {
-			if (this->type == Type::Error){
-				return "";
-			}
-			else {
-				string result;
-				this->toString(this, result, 0, this->type == Type::Object);
-				if(this->type == Type::String)
-					return result.substr(1, result.length() - 3);
-				else
-					return Utils::stringEndWith(result, ",") ? result.substr(0, result.length() - 1) : result;
-			}
-		}
-
 		bool isError(){
 			return this->type == Type::Error;
 		}
@@ -278,6 +264,35 @@ namespace ZJSON {
 
 		float toFloat(){
 			return (float)this->toDouble();
+		}
+
+		int size(){
+			if(this->type == Type::Array){
+				int ct = 0;
+				Json *cur = this->child;
+				while (cur)
+				{
+					cur = cur->brother;
+					ct++;
+				}
+				return ct;
+			}else{
+				return -1;
+			}
+		}
+
+		string toString() {
+			if (this->type == Type::Error){
+				return "";
+			}
+			else {
+				string result;
+				this->toString(this, result, 0, this->type == Type::Object);
+				if(this->type == Type::String)
+					return result.substr(1, result.length() - 3);
+				else
+					return Utils::stringEndWith(result, ",") ? result.substr(0, result.length() - 1) : result;
+			}
 		}
 
 		int toInt(){

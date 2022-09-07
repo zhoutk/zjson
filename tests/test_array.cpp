@@ -51,6 +51,7 @@ TEST(TestArray, test_array_1) {
 	EXPECT_EQ(objeStr.toString(), "[0.001235,12.345679,1234567.89,1234567890000]");
 
 	Json arrForCat(JsonType::Array);
+	EXPECT_EQ(arrForCat.size(), 0);	
 	arrForCat.addSubitem(2);
 	arrForCat.addSubitem({12,13,14,15});
 	Json subForCat(JsonType::Array);
@@ -58,4 +59,7 @@ TEST(TestArray, test_array_1) {
 	subForCat.addSubitem("str", 100);
 	arrForCat.concat(subForCat);
 	EXPECT_EQ(arrForCat.toString(), "[2,12,13,14,15,99,100]");
+
+	EXPECT_EQ(subForCat.size(), 2);	
+	EXPECT_EQ(arrForCat.size(), 7);	
 }

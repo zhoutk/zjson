@@ -124,6 +124,8 @@ TEST(TestObject, test_object_1) {
 	rs.addSubitem("data", arr);
 	EXPECT_EQ(rs.toString(),"{\"data\":[{\"yuwen\":66,\"draw\":11,\"hx\":90},[99,100],{\"music\":95,\"draw\":88}]}");
 
+	EXPECT_EQ(rs.size(), -1);	
+
 	EXPECT_TRUE(sub31.contains("hx"));
 	EXPECT_FALSE(sub31.contains("hhxx"));
 
