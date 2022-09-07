@@ -62,4 +62,8 @@ TEST(TestArray, test_array_1) {
 
 	EXPECT_EQ(subForCat.size(), 2);	
 	EXPECT_EQ(arrForCat.size(), 7);	
+
+	string objsArr = "[{\"name\":\"test1\",\"age\":1},{\"name\":\"test3\",\"age\":3},{\"name\":\"test4\",\"age\":5}]";
+	Json oArr(objsArr);
+	EXPECT_EQ(oArr.toString(), "[{\"name\":\"test1\",\"age\":1},{\"name\":\"test3\",\"age\":3},{\"name\":\"test4\",\"age\":5}]");
 }
