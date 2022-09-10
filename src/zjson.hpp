@@ -496,7 +496,8 @@ namespace ZJSON {
 				else
 					v = std::any_cast<string>(data);
 				string cutStr(v);
-				cutStr.erase(std::remove_if(cutStr.begin(), cutStr.end(), [](unsigned char x){return std::isspace(x);}), cutStr.end());
+				cutStr.erase(cutStr.begin(), std::find_if_not(cutStr.begin(), cutStr.end(), [](unsigned char x){return std::isspace(x);}));
+				//cutStr.erase(std::remove_if(cutStr.begin(), cutStr.end(), [](unsigned char x){return std::isspace(x);}), cutStr.end());
 				if(cutStr.at(0) == '{' || cutStr.at(0) == '['){
 					delete node;
 					return new Json(cutStr);
