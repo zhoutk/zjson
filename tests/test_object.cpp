@@ -49,6 +49,11 @@ TEST(TestObject, test_object_1) {
 	Json obj3Str(o3str);
 	EXPECT_EQ(obj3Str.toString(), "{\"JSON Test Pattern pass3\":{\"The outermost value\":\"must be an object or array.\",\"In this test\":\"It is an object.\"}}");
 
+	Json strobj(" a  \r\n{\"id\":\"a2b3c4d5\",\"name\":\"test001\",\"age\":19,\"score\":69.15}");
+	EXPECT_EQ(strobj.getValueType(), "String");
+	Json strObj("    \r\n{\"id\":\"a2b3c4d5\",\"name\":\"test001\",\"age\":19,\"score\":69.15}");
+	EXPECT_EQ(strObj.getValueType(), "Object");
+
 	Json subArray(JsonType::Array);
 	subArray.addSubitem("I'm the first one.");
 	subArray.addSubitem(2);
