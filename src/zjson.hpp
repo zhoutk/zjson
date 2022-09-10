@@ -19,6 +19,7 @@ namespace ZJSON {
 	};
 
 	class Json final {
+	private:
 		enum Type {
 			Error,
 			False,
@@ -29,7 +30,7 @@ namespace ZJSON {
 			Object,
 			Array
 		};
-
+		std::array<string, 8> TYPENAMES {"Error", "False", "True", "Null", "Number", "String", "Object", "Array"};
 		Json* brother;
 		Json* child;
 		Type type;
@@ -62,7 +63,6 @@ namespace ZJSON {
 			return (x >= lower && x <= upper);
 		}
 
-	private:
 		Json(Type type) {
 			this->brother = nullptr;
 			this->child = nullptr;
@@ -153,6 +153,10 @@ namespace ZJSON {
 
 		bool contains(const string& key){
 			return !((*this)[key].type == Type::Error);
+		}
+
+		string getValueType(){
+			return TYPENAMES[this->type];
 		}
 
 		Json getAndRemove(const string& key){

@@ -23,6 +23,7 @@
 - [x] operator=
 - [x] operator[]
 - [x] contains
+- [x] getValueType
 - [x] getAndRemove
 - [x] getAllKeys
 - [x] addSubitem（为Json对象增加子对象，为数组快速增加元素）
@@ -102,6 +103,7 @@ enum class JsonType
 - bool concat(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组扩展
 - void remove(const string &key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//删除键值
 - bool contains(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//判断key是否存在
+- string getValueType()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取值类型字符串表示
 - Json getAndRemove(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取并删除
 - std::vector<std::string> getAllKeys()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取所有key
     
