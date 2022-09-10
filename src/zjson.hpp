@@ -4,6 +4,7 @@
 #include <variant>
 #include <any>
 #include <iostream>
+#include <algorithm>
 
 namespace ZJSON {
 	static const int max_depth = 100;
@@ -483,7 +484,6 @@ namespace ZJSON {
 				node->data = dd;
 			}
 			else if (Utils::stringStartWith(typeStr, "char*") || Utils::stringStartWith(typeStr, "char *") || Utils::stringStartWith(typeStr, "char const") || Utils::stringContain(typeStr, "::basic_string<")) {
-				node->type = Type::String;
 				string v;
 				if (Utils::stringStartWith(typeStr, "char const"))
 					v = std::any_cast<char const*>(data);
@@ -491,6 +491,13 @@ namespace ZJSON {
 					v = std::any_cast<char *>(data);
 				else
 					v = std::any_cast<string>(data);
+				string cutStr(v);
+				cutStr.erase(std::remove_if(cutStr.begin(), cutStr.end(), [](unsigned char x){return std::isspace(x);}), cutStr.end());
+				if(cutStr.at(0) == '{' || cutStr.at(0) == '['){
+					delete node;
+					return new Json(cutStr);
+				}
+				node->type = Type::String;
 				node->data = v;
 			}
 			else if (Utils::stringEqualTo(typeStr, "bool")) {
