@@ -210,6 +210,9 @@ run zjson or ctest
 ## 相关项目
 
 会有一系列项目出炉，网络服务相关，敬请期待...
+> [zorm](https://gitee.com/zhoutk/zorm.git) (关系数据库的通用封装)
 ```
-
+https://gitee.com/zhoutk/zorm
+或
+https://github.com/zhoutk/zorm
 ```
