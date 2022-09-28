@@ -6,6 +6,7 @@
 #include <iostream>
 #include <algorithm>
 #include <limits>
+#include <array>
 
 namespace ZJSON {
 	static const int max_depth = 100;
