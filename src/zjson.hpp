@@ -181,11 +181,13 @@ namespace ZJSON {
 		}
 
 		bool addSubitem(std::initializer_list<Json> values){
-			if (this->type == Type::Array)
+			if (this->type == Type::Array){
 				for (auto al : values)
 				{
 					this->extendItem(&al);
 				}
+				return true;
+			}
 			else
 				return false;
 		}
