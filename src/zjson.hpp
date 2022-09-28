@@ -5,6 +5,7 @@
 #include <any>
 #include <iostream>
 #include <algorithm>
+#include <limits>
 
 namespace ZJSON {
 	static const int max_depth = 100;
@@ -367,6 +368,7 @@ namespace ZJSON {
 				}else{
 					this->extendItem(&value);
 				}
+				return true;
 			}
 			else
 			{
