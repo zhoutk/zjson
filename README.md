@@ -106,11 +106,9 @@ Api list
 ## Examples
 ```
     Json subObject{{"math", 99},{"str", "a string."}};   
-
-	Json mulitListObj{{"fkey", false},{"strkey","ffffff"},{"num2", 9.98}, {"okey", subObject}};
-
+    Json mulitListObj{{"fkey", false},{"strkey","ffffff"},{"num2", 9.98}, {"okey", subObject}};
     Json subArray(JsonType::Array);                 
-	subArray.addSubitem({12,13,14,15});            
+    subArray.addSubitem({12,13,14,15});            
 
     Json ajson(JsonType::Object);                
     std::string data = "kevin";                     
