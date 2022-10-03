@@ -34,6 +34,8 @@
 - [x] parse, 从json字符串生成Json对象
 - [x] Extend Json - 扩展对象
 - [x] concat Json - 数组扩展 
+- [x] push_front - 数组压入队首
+- [x] push_back - 数组压入队尾
 - [x] Remove key  - 删除所有键为key的数据（Json对象允许重复的key）
 - [ ] std::move语义
 - [ ] 递归版性能测试与对比
@@ -101,6 +103,8 @@ enum class JsonType
 - vector&lt;Json&gt; toVector()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//数组对象转为vector
 - bool extend(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//对象扩展
 - bool concat(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组扩展
+- bool push_front(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组压入队首
+- bool push_back(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组压入队尾
 - void remove(const string &key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//删除键值
 - bool contains(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//判断key是否存在
 - string getValueType()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取值类型字符串表示

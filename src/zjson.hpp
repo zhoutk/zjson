@@ -374,9 +374,23 @@ namespace ZJSON {
 				return true;
 			}
 			else
-			{
 				return false;
+		}
+
+		bool push_front(Json value){
+			if (this->type == Type::Array)
+			{
+				Json *theChild = this->child;
+				this->child = new Json(value);
+				this->child->brother = theChild;
+				return true;
 			}
+			else
+				return false;
+		}
+
+		bool push_back(Json value){
+			return addSubitem(value);
 		}
 
 		void remove(const string &key, Json *self = nullptr, Json* prev = nullptr)

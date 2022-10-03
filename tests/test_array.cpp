@@ -66,4 +66,15 @@ TEST(TestArray, test_array_1) {
 	string objsArr = "[{\"name\":\"test1\",\"age\":1},{\"name\":\"test3\",\"age\":3},{\"name\":\"test4\",\"age\":5}]";
 	Json oArr(objsArr);
 	EXPECT_EQ(oArr.toString(), "[{\"name\":\"test1\",\"age\":1},{\"name\":\"test3\",\"age\":3},{\"name\":\"test4\",\"age\":5}]");
+
+	Json arrForExt(JsonType::Array);
+	arrForExt.addSubitem({2,3,5,6,8,9});
+	arrForExt.push_front(1);
+	EXPECT_EQ(arrForExt.toString(), "[1,2,3,5,6,8,9]");
+	arrForExt.push_back(10);
+	EXPECT_EQ(arrForExt.toString(), "[1,2,3,5,6,8,9,10]");
+	arrForExt.push_front(Json({{"first",0},{"location",0}}));
+	EXPECT_EQ(arrForExt.toString(), "[{\"first\":0,\"location\":0},1,2,3,5,6,8,9,10]");
+	arrForExt.push_back(Json({{"last",11},{"location",12}}));
+	EXPECT_EQ(arrForExt.toString(), "[{\"first\":0,\"location\":0},1,2,3,5,6,8,9,10,{\"last\":11,\"location\":12}]");
 }
