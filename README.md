@@ -27,11 +27,12 @@ task list：
 - [x] toInt、toDouble、toFalse
 - [x] toVector
 - [x] isError、isNull、isArray
-- [x] parse -  from Json string to Json object
-- [x] Extend Json
-- [x] concat Json 
-- [x] push_front Json
-- [x] push_back Json
+- [x] parse - from Json string to Json object
+- [x] Extend - Json
+- [x] concat - Json 
+- [x] push_front - Json
+- [x] push_back - Json
+- [x] clear
 - [x] Remove key
 - [ ] std::move
 - [ ] performance test and comparison for recursive version
@@ -101,6 +102,7 @@ Api list
 - bool concat(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//for array object
 - bool push_front(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//for array object
 - bool push_back(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//for array object
+- void clear()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//clear child
 - void remove(const string &key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
 - bool contains(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
 - string getValueType()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//return value's type in string
