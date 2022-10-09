@@ -223,7 +223,8 @@ namespace ZJSON {
 
 				if(Utils::stringContain(typeStr, "ZJSON::Json")){
 					std::any data = value;
-					return addValueJson(name, std::move(std::any_cast<Json>(data)));
+					Json temp = std::any_cast<Json>(data);
+					return addValueJson(name, temp);
 				}else{
 					Json * node = makeValueJson(value, name, typeStr);
 					if(node->isError())
