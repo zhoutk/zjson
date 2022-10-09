@@ -22,6 +22,7 @@ int main(int argc, char* argv[])
 	sub.addSubitem("yuwen", 66);
 	sub.addSubitem("draw", 11);
 	sub.addSubitem("hx", 90);
+	//Json subMove = std::move(sub);
 	arr.push_back(sub);
 	Json sub2(JsonType::Array);
 	sub2.addSubitem("math", 99);

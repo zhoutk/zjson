@@ -18,7 +18,7 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 
 if(MSVC)
 	string(APPEND CMAKE_CXX_FLAGS " /Zc:__cplusplus")
-	add_compile_options(/wd26451 /wd26812)
+	add_compile_options(/wd26451 /wd26812 /wd4305 /wd4244)
 
     set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /MTd")
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MTd")

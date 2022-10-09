@@ -90,7 +90,7 @@ namespace ZJSON {
 			this->type = origin.type;
 			if(origin.type == Type::Array || origin.type == Type::Object){
 				this->name = origin.name;
-				addSubJson(this, origin.child ? origin.child->name : "", origin.child);
+				addValueJson(origin.child ? origin.child->name : "", *origin.child);
 			}else{
 				this->name = origin.name;
 				this->data = origin.data;
@@ -112,6 +112,16 @@ namespace ZJSON {
 			}
 		}
 
+		Json(Json&& rhs){
+			this->type = rhs.type;
+			this->child = rhs.child;
+			this->brother = rhs.brother;
+			this->name = rhs.name;
+			this->data = rhs.data;
+			rhs.child = nullptr;
+			rhs.brother = nullptr;
+		}
+
 		~Json(){
 			if(child){
 				deleteJson(child);
@@ -121,6 +131,11 @@ namespace ZJSON {
 
 		Json& operator = (const Json& origin) {
 			new (this)Json(origin);
+			return(*this);
+		}
+
+		Json& operator = (Json&& rhs) {
+			new (this)Json(std::move(rhs));
 			return(*this);
 		}
 
@@ -208,8 +223,7 @@ namespace ZJSON {
 
 				if(Utils::stringContain(typeStr, "ZJSON::Json")){
 					std::any data = value;
-					Json temp = std::any_cast<Json>(data);
-					return addValueJson(name, temp);
+					return addValueJson(name, std::move(std::any_cast<Json>(data)));
 				}else{
 					Json * node = makeValueJson(value, name, typeStr);
 					if(node->isError())
@@ -233,7 +247,7 @@ namespace ZJSON {
 				{
 					arr.addSubitem(item);
 				}
-				return this->addSubitem(name, arr);
+				return this->addSubitem(name, std::move(arr));
 			}else{
 				return false;
 			}
@@ -383,6 +397,7 @@ namespace ZJSON {
 				Json *theChild = this->child;
 				this->child = new Json(value);
 				this->child->brother = theChild;
+				theChild = nullptr;
 				return true;
 			}
 			else
@@ -390,7 +405,10 @@ namespace ZJSON {
 		}
 
 		bool push_back(Json value){
-			return addSubitem(value);
+			if (this->type == Type::Array)
+				return addSubitem(value);
+			else
+				return false;
 		}
 
 		void clear(){
@@ -577,7 +595,7 @@ namespace ZJSON {
 			}
 		}
 
-		void addSubJson(Json* self, string name, Json* obj) {
+		void addSubJson(Json* self, string name, Json* obj) {	//only use by addValueJson, for recursion
 			if(self == nullptr || obj == nullptr)
 				return;
 			Json* cur = obj;
@@ -733,7 +751,7 @@ namespace ZJSON {
 			Json fail(string &&msg) {
 				Json err(Type::Error);
 				err.name = msg;
-				return fail(move(msg), err);
+				return fail(std::move(msg), err);
 			}
 
 			template <typename T> T fail(string &&msg, const T err_ret) {
