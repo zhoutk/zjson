@@ -412,6 +412,37 @@ namespace ZJSON {
 				return false;
 		}
 
+		bool insert(int index, Json value){
+			if(this->type == Type::Array){
+				if(index < 0){
+					index += this->size();
+					if(index < 0)
+						return false;
+				}
+				if(index == 0)
+					return this->push_front(value);
+				else{
+					int ct = 0;
+					Json *pre = this;
+					Json *cur = this->child;
+					while (cur) {
+						if (index == ct++)
+							break;
+						pre = cur;
+						cur = cur->brother;
+					}
+					if (index < ct) {
+						pre->brother = new Json(value);
+						pre->brother->brother = cur;
+						return true;
+					}
+					else
+						return false;
+				}
+			}else
+				return false;
+		}
+
 		void clear(){
 			if(this->type == Type::Array || this->type == Type::Object){
 				if(this->child)

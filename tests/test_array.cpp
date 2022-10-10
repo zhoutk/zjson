@@ -77,4 +77,13 @@ TEST(TestArray, test_array_1) {
 	EXPECT_EQ(arrForExt.toString(), "[{\"first\":0,\"location\":0},1,2,3,5,6,8,9,10]");
 	arrForExt.push_back(Json({{"last",11},{"location",12}}));
 	EXPECT_EQ(arrForExt.toString(), "[{\"first\":0,\"location\":0},1,2,3,5,6,8,9,10,{\"last\":11,\"location\":12}]");
+
+	arrForExt.clear();
+	arrForExt.addSubitem({2,3,5,6,8,9});
+	arrForExt.insert(2, 4);
+	EXPECT_EQ(arrForExt.toString(), "[2,3,4,5,6,8,9]");
+	bool ret = arrForExt.insert(-8, 7);
+	EXPECT_FALSE(ret);
+	arrForExt.insert(-2, 7);
+	EXPECT_EQ(arrForExt.toString(), "[2,3,4,5,6,7,8,9]");
 }

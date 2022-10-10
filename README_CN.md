@@ -36,6 +36,7 @@
 - [x] concat Json - 数组扩展 
 - [x] push_front - 数组压入队首
 - [x] push_back - 数组压入队尾
+- [x] insert - 数组插入
 - [x] clear - 清空
 - [x] Remove key  - 删除所有键为key的数据（Json对象允许重复的key）
 - [x] std::move语义
@@ -108,6 +109,7 @@ enum class JsonType
 - bool concat(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组扩展
 - bool push_front(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组压入队首
 - bool push_back(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组压入队尾
+- bool insert(int index, Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组插入元素
 - bool clear()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//清空
 - void remove(const string &key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//删除键值
 - bool contains(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//判断key是否存在
