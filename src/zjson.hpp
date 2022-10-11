@@ -572,12 +572,10 @@ namespace ZJSON {
 					v = std::any_cast<char *>(data);
 				else
 					v = std::any_cast<string>(data);
-				string cutStr(v);
-				cutStr.erase(cutStr.begin(), std::find_if_not(cutStr.begin(), cutStr.end(), [](unsigned char x){return std::isspace(x);}));
-				//cutStr.erase(std::remove_if(cutStr.begin(), cutStr.end(), [](unsigned char x){return std::isspace(x);}), cutStr.end());
-				if(cutStr.at(0) == '{' || cutStr.at(0) == '['){
+				auto it = std::find_if_not(v.begin(), v.end(), [](unsigned char x){return std::isspace(x);});
+				if(it != v.end() && (*it == '{' || *it == '[')){
 					delete node;
-					return new Json(cutStr);
+					return new Json(v);
 				}
 				node->type = Type::String;
 				node->data = v;
