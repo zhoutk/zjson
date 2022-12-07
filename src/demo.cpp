@@ -7,6 +7,23 @@ using namespace ZJSON;
 
 int main(int argc, char* argv[])
 {
+	Json rs(JsonType::Array);
+
+	Json one;
+	Json sub(JsonType::Array);
+	sub.concat("1");
+	sub.concat("2");
+	one.addSubitem("first", sub);
+	rs.addSubitem(one);
+
+	one.clear();
+	sub.clear();
+	sub.concat("3");
+	sub.concat("4");
+	one.addSubitem("second", sub);
+	rs.addSubitem(one);
+
+	std::cout << "parse a object string : " << rs.toString() << std::endl;
 	//string str = "{\"array\":[\"first\",90.12387,null,2,true],\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"}";
 	//string str = "{\"age\":10,\"array\":[\"first\",null],\"true\":true}"; //,\"true\":true
 	//string str = "{\"long\":123,\"longlong\":56789,\"sex\":true,\"name\":\"kevin\",\"school-cn\":\"第八十五中学\",\"subObjct\":{\"first\":\"this is the first.\",\"second obj\":{\"sub2-1\":\"the second sub object.\",\"sub2-2\":\"the second field.\"},\"a number\":666},\"school-en\":\"the 85th.\",\"age\":10,\"scores\":95.98,\"classroom\":9.012345,\"index\":54,\"nullkey\":null}";
@@ -17,24 +34,24 @@ int main(int argc, char* argv[])
 	// subArray.addSubitem(2);
 	// subArray.addSubitem({12,13,14,15});
 	// std::vector<Json> sub = subArray.toVector();
-	std::vector<Json> arr;
-	Json sub;
-	sub.addSubitem("yuwen", 66);
-	sub.addSubitem("draw", 11);
-	sub.addSubitem("hx", 90);
-	//Json subMove = std::move(sub);
-	arr.push_back(sub);
-	Json sub2(JsonType::Array);
-	sub2.addSubitem("math", 99);
-	sub2.addSubitem("str", 100);
-	arr.push_back(sub2);
-	Json sub3;
-	sub3.addSubitem("music", 95);
-	sub3.addSubitem("draw", 88);
-	arr.push_back(sub3);
+	// std::vector<Json> arr;
+	// Json sub;
+	// sub.addSubitem("yuwen", 66);
+	// sub.addSubitem("draw", 11);
+	// sub.addSubitem("hx", 90);
+	// //Json subMove = std::move(sub);
+	// arr.push_back(sub);
+	// Json sub2(JsonType::Array);
+	// sub2.addSubitem("math", 99);
+	// sub2.addSubitem("str", 100);
+	// arr.push_back(sub2);
+	// Json sub3;
+	// sub3.addSubitem("music", 95);
+	// sub3.addSubitem("draw", 88);
+	// arr.push_back(sub3);
 
-	Json rs;
-	rs.addSubitem("data", arr);
+	// Json rs;
+	// rs.addSubitem("data", arr);
 	//  subArray.concat(sub2);
 	 //Json sub{{"fkey", false},{"strkey","ffffff"},{"nkey", nullptr}, {"n1", 2}, {"num2", 9.98}, {"okey", subArray}};
 	// sub.addSubitem("this is the first.");
@@ -42,7 +59,7 @@ int main(int argc, char* argv[])
 	// subb.addSubitem("the second sub object.");
 	// subb.addSubitem("the second field.");
 	// sub.addSubitem("second obj", subb);
-	std::cout << "parse a object string : " << rs.toString() << std::endl;
+	// std::cout << "parse a object string : " << rs.toString() << std::endl;
 	// str = "[\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"]";
 	// Json arrStr(str);
 	// std::cout << "parse a array string : " << arrStr.toString() << std::endl;

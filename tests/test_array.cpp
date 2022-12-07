@@ -86,4 +86,20 @@ TEST(TestArray, test_array_1) {
 	EXPECT_FALSE(ret);
 	arrForExt.insert(-2, 7);
 	EXPECT_EQ(arrForExt.toString(), "[2,3,4,5,6,7,8,9]");
+
+	Json rs(JsonType::Array);
+	Json one;
+	sub.clear();
+	sub.concat("1");
+	sub.concat("2");
+	one.addSubitem("first", sub);
+	rs.addSubitem(one);
+
+	one.clear();
+	sub.clear();
+	sub.concat("3");
+	sub.concat("4");
+	one.addSubitem("second", sub);
+	rs.addSubitem(one);
+	EXPECT_EQ(rs.toString(), "[{\"first\":[\"1\",\"2\"]},{\"second\":[\"3\",\"4\"]}]");
 }
