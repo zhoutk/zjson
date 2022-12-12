@@ -29,4 +29,12 @@ TEST(TestParse, test_parse_1) {
 	EXPECT_EQ(multiLevel["array"][1].toDouble(), 90.12387);
 	EXPECT_EQ(multiLevel["array"][3]["three03"].toString(), "the end");
 	EXPECT_EQ(multiLevel["array"][3]["three02"][2].toInt(), 2);
+
+	Json pid{{"pid", 19692}};
+	Json UserData {
+		{"data", pid},
+		{"type", 11024}
+	};
+	EXPECT_EQ(UserData["type"].toInt(), 11024);
+	EXPECT_EQ(UserData.toString(), "{\"data\":{\"pid\":19692},\"type\":11024}");
 }
