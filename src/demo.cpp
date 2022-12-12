@@ -7,21 +7,24 @@ using namespace ZJSON;
 
 int main(int argc, char* argv[])
 {
-	Json rs(JsonType::Array);
+	// Json rs(JsonType::Array);
 
-	Json one;
-	Json sub(JsonType::Array);
-	sub.concat("1");
-	sub.concat("2");
-	one.addSubitem("first", sub);
-	rs.addSubitem(one);
+	// Json one;
+	// Json sub(JsonType::Array);
+	// sub.concat("1");
+	// sub.concat("2");
+	// one.addSubitem("first", sub);
+	// rs.addSubitem(one);
 
-	one.clear();
-	sub.clear();
-	sub.concat("3");
-	sub.concat("4");
-	one.addSubitem("second", sub);
-	rs.addSubitem(one);
+	// one.clear();
+	// sub.clear();
+	// sub.concat("3");
+	// sub.concat("4");
+	// one.addSubitem("second", sub);
+	// rs.addSubitem(one);
+
+	string strBase = "{\"array\":[\"first\",null],\"true\":true,\"subobj\":{\"field01\":\"obj01\",\"subNumber\":99,\"null\":null},\"age\":10}"; 
+	Json rs(strBase);
 
 	std::cout << "parse a object string : " << rs.toString() << std::endl;
 	//string str = "{\"array\":[\"first\",90.12387,null,2,true],\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"}";

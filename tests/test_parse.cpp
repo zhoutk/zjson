@@ -26,4 +26,7 @@ TEST(TestParse, test_parse_1) {
 	EXPECT_EQ(multiLevel["array"][3]["three03"].toString(), "the end");
 	EXPECT_EQ(multiLevel["array"][3]["three02"][2].toInt(), 2);
 
+	strBase = "{\"array\":[\"first\",null],\"true\":true,\"subobj\":{\"field01\":\"obj01\",\"subNumber\":99,\"null\":null},\"age\":10}"; 
+	Json base2(strBase);
+	EXPECT_EQ(base2.toString(), "{\"array\":[\"first\",null],\"true\":true,\"subobj\":{\"field01\":\"obj01\",\"subNumber\":99,\"null\":null},\"age\":10}");
 }
