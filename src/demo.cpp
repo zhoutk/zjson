@@ -22,6 +22,9 @@ int main(int argc, char* argv[])
 	// sub.concat("4");
 	// one.addSubitem("second", sub);
 	// rs.addSubitem(one);
+	std::string szData = "{\"data\":{\"pid\":19692},\"type\":11024}";
+	Json UserData(szData);
+	std::cout << "type:" << UserData["type"].toInt() << UserData.toString() << std::endl;
 
 	string strBase = "{\"array\":[\"first\",null],\"true\":true,\"subobj\":{\"field01\":\"obj01\",\"subNumber\":99,\"null\":null},\"age\":10}"; 
 	Json rs(strBase);

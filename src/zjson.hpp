@@ -686,7 +686,9 @@ namespace ZJSON {
 
 		Json find(const string& key, bool notArray = true){
 			if(this->type == Type::Array || this->type == Type::Object){
-				if(this->child)
+				if(this->brother)
+					return this->brother->find(key, this->type != Type::Array);
+				else if(this->child)
 					return this->child->find(key, this->type != Type::Array);
 				else
 					return Json(Type::Error);
