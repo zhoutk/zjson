@@ -686,12 +686,17 @@ namespace ZJSON {
 
 		Json find(const string& key, bool notArray = true){
 			if(this->type == Type::Array || this->type == Type::Object){
-				if(this->brother)
-					return this->brother->find(key, this->type != Type::Array);
-				else if(this->child)
-					return this->child->find(key, this->type != Type::Array);
-				else
-					return Json(Type::Error);
+				if(this->brother){
+					Json rs = this->brother->find(key, this->type != Type::Array);
+					if(!rs.isError())
+						return rs;
+				}
+				if(this->child){
+					Json rs = this->child->find(key, this->type != Type::Array);
+					if(!rs.isError())
+						return rs;
+				}
+				return Json(Type::Error);
 			}else{
 				Json* cur = this;
 				Json rs(Type::Error);
