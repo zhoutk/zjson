@@ -336,9 +336,8 @@ namespace ZJSON {
 
 		bool toBool(){
 			if(this->type == Type::False || this->type == Type::True){
-				bool * rs = std::get_if<bool>(&this->data);
-				if(rs)
-					return (*rs);
+				if(this->type == Type::True)
+					return true;
 				else
 					return false;
 			}else
