@@ -1,4 +1,4 @@
-# ZJSON   &emsp;&emsp;  [English](https://github.com/zhoutk/zjson/blob/master/README.md)  
+# ZJSON   &emsp;&emsp;  [English](README.md)  
 
 ## 介绍
 从node.js转到c++，特别怀念在js中使用json那种畅快感。在c++中也使用过了些库，但提供的接口使用方式，总不是习惯，很烦锁，接口函数太多，不直观。参考了很多库，如：rapidjson, cJson, CJsonObject, drleq-cppjson, json11等。数据结构受cJOSN启发很大，解析部分借鉴了json11，向他们致敬。最后因为数据存储需要不区分型别，又要能知道其型别，所以选择了C++17才支持的std::variant以及std::any，最终，C++版本定格在c++17，本库设计为单头文件，且不依赖c++标准库以外的任何库。
