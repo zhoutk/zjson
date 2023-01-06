@@ -1,4 +1,4 @@
-# ZJSON   &emsp;&emsp;  [中文介绍](https://github.com/zhoutk/zjson/blob/master/README_CN.md)  
+# ZJSON   &emsp;&emsp;  [中文介绍](README_CN.md)  
 
 ## Introduce
 From node.Js back to c++. I especially miss the pleasure of using json in javascript, so try to diy one. I used many libraries, such as: rapidjson, cJson, CJsonObject, drleq cppjson, json11, etc. Zjson's data structure is greatly inspired by cJOSN. The parsing part refers to json11, thanks! Finally, because data storage needs not only to distinguish values, but also to know their types. I choose std:: variant and std:: any which supported by C++17. Finally, the C++ version is fixed at C++17. This library is designed as a single header file, not relying on any other lib than the C++ standard library.
