@@ -330,6 +330,8 @@ namespace ZJSON {
 					return (*rs);
 				else
 					return 0.0;
+			}else if(this->type == Type::String){
+				return atof(this->toString().c_str());
 			}else
 				return 0.0;
 		}
