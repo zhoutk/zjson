@@ -80,7 +80,7 @@ namespace ZJSON {
 			this->type = (Type)type;
 		}
 
-		template<typename T> Json(T value, string key = ""){
+		template<typename T> Json(T value){
 			*this = *makeValueJson(value);
 		}
 
@@ -576,7 +576,9 @@ namespace ZJSON {
 				auto it = std::find_if_not(v.begin(), v.end(), [](unsigned char x){return std::isspace(x);});
 				if(it != v.end() && (*it == '{' || *it == '[')){
 					delete node;
-					return new Json(v);
+					Json* t = new Json(v);
+					node->name = name;
+					return t;
 				}
 				node->type = Type::String;
 				node->data = v;
@@ -633,6 +635,8 @@ namespace ZJSON {
 			while (cur)
 			{
 				if (cur->type == Type::Object || cur->type == Type::Array){
+					if(cur->child == nullptr)
+						return;
 					Json *subObj = new Json();
 					subObj->type = cur->type;
 					subObj->name = name;
