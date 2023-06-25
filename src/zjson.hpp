@@ -305,6 +305,10 @@ namespace ZJSON {
 			}
 		}
 
+		bool isEmpty(){
+			return this->size() <= 0;
+		}
+
 		string toString() {
 			if (this->type == Type::Error){
 				return "";
@@ -577,7 +581,7 @@ namespace ZJSON {
 				if(it != v.end() && (*it == '{' || *it == '[')){
 					delete node;
 					Json* t = new Json(v);
-					node->name = name;
+					t->name = name;
 					return t;
 				}
 				node->type = Type::String;
