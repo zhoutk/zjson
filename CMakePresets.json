@@ -1,0 +1,39 @@
+{
+    "version": 4,
+    "configurePresets": [
+        {
+            "name": "windows-base",
+            "description": "Windows",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "installDir": "${sourceDir}/out/install/${presetName}",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "cl.exe",
+                "CMAKE_CXX_COMPILER": "cl.exe"
+            },
+            "environment": {
+                "Enclib": "D:\\libs\\Enclib-n-qt-x64-rlz-nopw",
+                "QTDIR": "D:\\libs\\Qt\\5.12.12\\msvc2017_64",
+                "QT_QPA_PLATFORM_PLUGIN_PATH": "D:\\libs\\Qt\\5.12.12\\msvc2017_64\\plugins\\platforms",
+                "PATH": "$env{QTDIR}\\bin;$env{Enclib}\\bin;$penv{PATH}"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "x64-debug",
+            "displayName": "x64 Debug",
+            "description": "Windows (64)(Debug)",
+            "inherits": "windows-base",
+            "architecture": {
+                "value": "AMD64",
+                "strategy": "external"
+            },
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+        }
+    ]
+}
