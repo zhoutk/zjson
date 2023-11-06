@@ -139,7 +139,7 @@ namespace ZJSON {
 			return(*this);
 		}
 
-		Json operator[](const int& index) {
+		Json operator[](const int& index) const {
 			Json rs(Type::Error);
 			if(this->type == Type::Array) {
 				if(index < 0){
@@ -152,7 +152,7 @@ namespace ZJSON {
 				return rs;
 		}
 
-		Json operator[](const string& key) {
+		Json operator[](const string& key) const {
 			Json rs(Type::Error);
 			if(this->type == Type::Object) {
 				if(key.empty() || this->child == nullptr){
@@ -168,21 +168,21 @@ namespace ZJSON {
 				return rs;
 		}
 
-		bool contains(const string& key){
+		bool contains(const string& key) const {
 			return !((*this)[key].type == Type::Error);
 		}
 
-		string getValueType(){
+		string getValueType() const {
 			return TYPENAMES[this->type];
 		}
 
-		Json getAndRemove(const string& key){
+		Json take(const string& key){
 			Json rs = (*this)[key];
 			this->remove(key);
 			return rs;
 		}
 
-		std::vector<std::string> getAllKeys(){
+		std::vector<std::string> getAllKeys() const {
 			std::vector<std::string> rs;
 			if(this->type == Type::Object){
 				Json* cur = this->child;
@@ -195,7 +195,7 @@ namespace ZJSON {
 			return rs;
 		}
 
-		bool addSubitem(std::initializer_list<Json> values){
+		bool add(std::initializer_list<Json> values){
 			if (this->type == Type::Array){
 				for (auto al : values)
 				{
@@ -207,14 +207,14 @@ namespace ZJSON {
 				return false;
 		}
 
-		template<typename T> bool addSubitem(T value) {
+		template<typename T> bool add(T value) {
 			if(this->type == Type::Array)
-				return addSubitem("", value);
+				return add("", value);
 			else
 				return false;
 		}
 
-		template<typename T> bool addSubitem(string name, T value) {
+		template<typename T> bool add(string name, T value) {
 			if (this->type == Type::Object || this->type == Type::Array) {
 				string typeStr = GetTypeName(T);
 				if(this->type == Type::Array)
@@ -239,58 +239,58 @@ namespace ZJSON {
 				return false;	
 		}
 
-		bool addSubitem(string name, std::vector<Json> items){
+		bool add(string name, std::vector<Json> items){
 			if(items.empty())
 				return true;
 			if (this->type == Type::Object){
 				Json arr(Type::Array);
 				for (Json item : items)
 				{
-					arr.addSubitem(item);
+					arr.add(item);
 				}
-				return this->addSubitem(name, std::move(arr));
+				return this->add(name, std::move(arr));
 			}else{
 				return false;
 			}
 		}
 
-		bool isError(){
+		bool isError() const {
 			return this->type == Type::Error;
 		}
 
-		bool isNull(){
+		bool isNull() const {
 			return this->type == Type::Null;
 		}
 
-		bool isObject(){
+		bool isObject() const {
 			return this->type == Type::Object;
 		}
 
-		bool isArray(){
+		bool isArray() const {
 			return this->type == Type::Array;
 		}
 
-		bool isNumber(){
+		bool isNumber() const {
 			return this->type == Type::Number;
 		}
 
-		bool isTrue(){
+		bool isTrue() const {
 			return this->type == Type::True;
 		}
 
-		bool isFalse(){
+		bool isFalse() const {
 			return this->type == Type::False;
 		}
 
-		bool isString(){
+		bool isString() const {
 			return this->type == Type::String;
 		}
 
-		float toFloat(){
+		float toFloat() const {
 			return (float)this->toDouble();
 		}
 
-		int size(){
+		int size() const {
 			if(this->type == Type::Array){
 				int ct = 0;
 				Json *cur = this->child;
@@ -305,11 +305,11 @@ namespace ZJSON {
 			}
 		}
 
-		bool isEmpty(){
+		bool isEmpty() const {
 			return this->size() <= 0;
 		}
 
-		string toString() {
+		string toString() const {
 			if (this->type == Type::Error){
 				return "";
 			}
@@ -323,13 +323,13 @@ namespace ZJSON {
 			}
 		}
 
-		int toInt(){
+		int toInt() const {
 			return (int)this->toDouble();
 		}
 
-		double toDouble(){
+		double toDouble() const {
 			if(this->type == Type::Number){
-				double * rs = std::get_if<double>(&this->data);
+				const double * rs = std::get_if<double>(&this->data);
 				if(rs)
 					return (*rs);
 				else
@@ -340,7 +340,7 @@ namespace ZJSON {
 				return 0.0;
 		}
 
-		bool toBool(){
+		bool toBool() const {
 			if(this->type == Type::False || this->type == Type::True){
 				if(this->type == Type::True)
 					return true;
@@ -350,7 +350,7 @@ namespace ZJSON {
 				return false;
 		}
 
-		std::vector<Json> toVector(){
+		std::vector<Json> toVector() const {
 			std::vector<Json> rs;
 			if(this->type == Type::Array){
 				Json* cur = this->child;
@@ -412,7 +412,7 @@ namespace ZJSON {
 
 		bool push_back(Json value){
 			if (this->type == Type::Array)
-				return addSubitem(value);
+				return add(value);
 			else
 				return false;
 		}
@@ -513,23 +513,23 @@ namespace ZJSON {
 			switch (cur->type)
 					{
 					case Type::False:
-						this->addSubitem(cur->name, false);
+						this->add(cur->name, false);
 						break;
 					case Type::True:
-						this->addSubitem(cur->name, true);
+						this->add(cur->name, true);
 						break;
 					case Type::Null:
-						this->addSubitem(cur->name, nullptr);
+						this->add(cur->name, nullptr);
 						break;
 					case Type::Number:
-						this->addSubitem(cur->name, cur->toDouble());
+						this->add(cur->name, cur->toDouble());
 						break;
 					case Type::String:
-						this->addSubitem(cur->name, std::get<std::string>(cur->data));
+						this->add(cur->name, std::get<std::string>(cur->data));
 						break;
 					case Type::Object:
 					case Type::Array:
-						this->addSubitem(cur->name, *cur);
+						this->add(cur->name, *cur);
 					default:
 						break;
 					}
@@ -696,7 +696,7 @@ namespace ZJSON {
 		Json find(const string& key, bool notArray = true){
 			if(this->type == Type::Array || this->type == Type::Object){
 				if(this->brother){
-					Json rs = this->brother->find(key, this->type != Type::Array);
+					Json rs = this->brother->find(key, this->brother->type != Type::Array);
 					if(!rs.isError())
 						return rs;
 				}
@@ -729,7 +729,7 @@ namespace ZJSON {
 			}
 		}
 
-		void toString(Json* json, string & result, int deep = 0, bool isObj = true) {
+		void toString(const Json* json, string & result, int deep = 0, bool isObj = true) const {
 			if (json->type == Type::Object || json->type == Type::Array) {
 				if(deep > 0)
 					result.append(isObj ? "\"" + json->name + "\":" : "")

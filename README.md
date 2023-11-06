@@ -118,27 +118,27 @@ Api list
     Json subObject{{"math", 99},{"str", "a string."}};   
     Json mulitListObj{{"fkey", false},{"strkey","ffffff"},{"num2", 9.98}, {"okey", subObject}};
     Json subArray(JsonType::Array);                 
-    subArray.addSubitem({12,13,14,15});            
+    subArray.add({12,13,14,15});            
 
     Json ajson(JsonType::Object);                
     std::string data = "kevin";                     
-    ajson.addSubitem("fail", false);             
-    ajson.addSubitem("name", data);              
-    ajson.addSubitem("school-en", "the 85th.");   
-    ajson.addSubitem("age", 10);                  
-    ajson.addSubitem("scores", 95.98);            
-    ajson.addSubitem("nullkey", nullptr);         
+    ajson.add("fail", false);             
+    ajson.add("name", data);              
+    ajson.add("school-en", "the 85th.");   
+    ajson.add("age", 10);                  
+    ajson.add("scores", 95.98);            
+    ajson.add("nullkey", nullptr);         
 
     Json sub;                                  
-    sub.addSubitem("math", 99);                 
+    sub.add("math", 99);                 
     ajson.addValueJson("subJson", sub);           
 
     Json subArray(JsonType::Array);              
-    subArray.addSubitem("I'm the first one.");   
-    subArray.addSubitem("two", 2);               
+    subArray.add("I'm the first one.");   
+    subArray.add("two", 2);               
     
     Json sub2;                            
-    sub2.addSubitem("sb2", 222);
+    sub2.add("sb2", 222);
 
     subArray.addValueJson("subObj", sub2);         
     

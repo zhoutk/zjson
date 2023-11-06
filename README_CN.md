@@ -126,27 +126,27 @@ enum class JsonType
 	Json mulitListObj{{"fkey", false},{"strkey","ffffff"},{"num2", 9.98}, {"okey", subObject}};
 
     Json subArray(JsonType::Array);                 //数组对象以initializer_list方式增加元素
-	subArray.addSubitem({12,13,14,15});             //快速生成 [12,13,14,15] array json
+	subArray.add({12,13,14,15});             //快速生成 [12,13,14,15] array json
 
     Json ajson(JsonType::Object);                   //新建Object对象，输入参数可以省略
     std::string data = "kevin";                     
-    ajson.addSubitem("fail", false);              //增加false值对象
-    ajson.addSubitem("name", data);               //增加字符串值对象
-    ajson.addSubitem("school-en", "the 85th.");   
-    ajson.addSubitem("age", 10);                  //增加number值对象，此处为整数
-    ajson.addSubitem("scores", 95.98);            //增加number值对象，此处为浮点数，还支持long,long long
-    ajson.addSubitem("nullkey", nullptr);         //增加null值对象，需要送入nullptr， NULL会被认为是整数0
+    ajson.add("fail", false);              //增加false值对象
+    ajson.add("name", data);               //增加字符串值对象
+    ajson.add("school-en", "the 85th.");   
+    ajson.add("age", 10);                  //增加number值对象，此处为整数
+    ajson.add("scores", 95.98);            //增加number值对象，此处为浮点数，还支持long,long long
+    ajson.add("nullkey", nullptr);         //增加null值对象，需要送入nullptr， NULL会被认为是整数0
 
     Json sub;                                       //新建Object对象
-    sub.addSubitem("math", 99);                 
+    sub.add("math", 99);                 
     ajson.addValueJson("subJson", sub);             //为ajson增加子Json类型对象，完成嵌套需要
 
     Json subArray(JsonType::Array);                 //新建Array对象，输入参数不可省略
-    subArray.addSubitem("I'm the first one.");    //增加Array对象的字符串值子对象
-    subArray.addSubitem("two", 2);                //增加Array对象的number值子对象，第一个参数会被忽略
+    subArray.add("I'm the first one.");    //增加Array对象的字符串值子对象
+    subArray.add("two", 2);                //增加Array对象的number值子对象，第一个参数会被忽略
     
     Json sub2;                            
-    sub2.addSubitem("sb2", 222);
+    sub2.add("sb2", 222);
 
     subArray.addValueJson("subObj", sub2);          //为Array对象增加Object类子对象，完成嵌套需求
     
