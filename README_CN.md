@@ -40,6 +40,11 @@
 - [x] clear - 清空
 - [x] Remove key  - 删除所有键为key的数据（Json对象允许重复的key）
 - [x] std::move语义
+- [ ] pop pop_back pop_front
+- [ ] removeFirst removeLast remove(for array)
+- [ ] slice
+- [ ] takes take
+- [ ] std::move语义
 - [ ] 递归版性能测试与对比
 - [ ] 算法非递归化
 - [ ] 再次性能测试与对比

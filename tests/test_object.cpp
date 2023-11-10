@@ -13,27 +13,16 @@ TEST(TestObject, test_object_1) {
 	long l = 123;
 	long long ll = 56789;
 	Json sub;
-	EXPECT_EQ(sub.add("first", "this is the first."), true);
+	sub.add("first", "this is the first.");
 	Json subb;
-	EXPECT_EQ(subb.add("sub2-1", "the second sub object."), true);
-	EXPECT_EQ(subb.add("sub2-2", "the second field."), true);
-	EXPECT_EQ(sub.add("second obj", subb), true);
-	EXPECT_EQ(sub.add("a number", 666), true);
+	subb.add("sub2-1", "the second sub object.").add("sub2-2", "the second field.");
+	sub.add("second obj", subb).add("a number", 666);
 
-	EXPECT_EQ(ajson.add("long", l), true);
-	EXPECT_EQ(ajson.add("longlong", ll), true);
-	EXPECT_EQ(ajson.add("sex", true), true);
-	EXPECT_EQ(ajson.add("name", data), true);
-	EXPECT_EQ(ajson.add("school-cn", "第八十五中学"), true);
+	ajson.add("long", l).add("longlong", ll).add("sex", true);
+	ajson.add("name", data).add("school-cn", "第八十五中学").add("subObjct", sub);
 
-	EXPECT_TRUE(ajson.add("subObjct", sub));
-
-	EXPECT_EQ(ajson.add("school-en", "the 85th."), true);
-	EXPECT_EQ(ajson.add("age", 10), true);
-	EXPECT_EQ(ajson.add("scores", 95.98), true);
-	EXPECT_EQ(ajson.add("classroom", f), true);
-	EXPECT_EQ(ajson.add("index", '6'), true);
-	EXPECT_EQ(ajson.add("nullkey", nullptr), true);
+	ajson.add("school-en", "the 85th.").add("age", 10).add("scores", 95.98);
+	ajson.add("classroom", f).add("index", '6').add("nullkey", nullptr);
 
 	EXPECT_EQ(ajson.toString(), "{\"long\":123,\"longlong\":56789,\"sex\":true,\"name\":\"kevin\",\"school-cn\":\"第八十五中学\",\"subObjct\":{\"first\":\"this is the first.\",\"second obj\":{\"sub2-1\":\"the second sub object.\",\"sub2-2\":\"the second field.\"},\"a number\":666},\"school-en\":\"the 85th.\",\"age\":10,\"scores\":95.98,\"classroom\":9.012345,\"index\":54,\"nullkey\":null}");
 
@@ -151,4 +140,9 @@ TEST(TestObject, test_object_1) {
 	for(auto al : emptyKeys)
 		emptyKeyString.append(al);
 	EXPECT_EQ(emptyKeyString, "");
+
+	std::string szData = "{\"start\":{\"x\":1,\"y\":2},\"end\":{\"x\":30,\"y\":25}}";
+	Json jsData(szData);
+	EXPECT_EQ(jsData["end"]["x"].toInt(), 30);
+	EXPECT_EQ(jsData["start"].toString(), "{\"x\":1,\"y\":2}");
 }

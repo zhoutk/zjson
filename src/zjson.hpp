@@ -195,53 +195,42 @@ namespace ZJSON {
 			return rs;
 		}
 
-		bool add(std::initializer_list<Json> values){
+		Json& add(std::initializer_list<Json> values){
 			if (this->type == Type::Array){
 				for (auto al : values)
-				{
 					this->extendItem(&al);
-				}
-				return true;
 			}
-			else
-				return false;
+			return (*this);
 		}
 
-		template<typename T> bool add(T value) {
+		template<typename T> Json& add(T value) {
 			if(this->type == Type::Array)
 				return add("", value);
 			else
-				return false;
+				return (*this);
 		}
 
-		template<typename T> bool add(string name, T value) {
+		template<typename T> Json& add(string name, T value) {
 			if (this->type == Type::Object || this->type == Type::Array) {
 				string typeStr = GetTypeName(T);
 				if(this->type == Type::Array)
 					name = "";
-				//std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
-
 				if(Utils::stringContain(typeStr, "ZJSON::Json")){
 					std::any data = value;
 					Json temp = std::any_cast<Json>(data);
-					return addValueJson(name, temp);
+					addValueJson(name, temp);
 				}else{
 					Json * node = makeValueJson(value, name, typeStr);
-					if(node->isError())
-						return false;
-					else{
+					if(!node->isError())
 						appendNodeToJson(node);
-						return true;
-					}
 				}
 			}
-			else
-				return false;	
+			return (*this);
 		}
 
-		bool add(string name, std::vector<Json> items){
+		Json& add(string name, std::vector<Json> items){
 			if(items.empty())
-				return true;
+				return (*this);
 			if (this->type == Type::Object){
 				Json arr(Type::Array);
 				for (Json item : items)
@@ -250,7 +239,7 @@ namespace ZJSON {
 				}
 				return this->add(name, std::move(arr));
 			}else{
-				return false;
+				return (*this);
 			}
 		}
 
@@ -363,7 +352,7 @@ namespace ZJSON {
 			}
 		}
 
-		bool extend(Json value){
+		Json& extend(Json value){
 			if(this->type == Type::Object && value.type == Type::Object){
 				Json* cur = value.child;
 				while(cur) {
@@ -371,13 +360,11 @@ namespace ZJSON {
 					this->extendItem(cur);
 					cur = cur->brother;
 				}
-				return true;
-			}else{
-				return false;
 			}
+			return (*this);
 		}
 
-		bool concat(Json value){
+		Json& concat(Json value){
 			if (this->type == Type::Array)
 			{
 				if (value.type == Type::Array || value.type == Type::Object)
@@ -391,38 +378,38 @@ namespace ZJSON {
 				}else{
 					this->extendItem(&value);
 				}
-				return true;
 			}
-			else
-				return false;
+			return (*this);
 		}
 
-		bool push_front(Json value){
+		Json& push_front(const Json& value){
 			if (this->type == Type::Array)
 			{
 				Json *theChild = this->child;
 				this->child = new Json(value);
 				this->child->brother = theChild;
 				theChild = nullptr;
-				return true;
 			}
-			else
-				return false;
+			return (*this);
 		}
 
-		bool push_back(Json value){
+		Json& push_back(const Json& value){
 			if (this->type == Type::Array)
 				return add(value);
 			else
-				return false;
+				return (*this);
 		}
 
-		bool insert(int index, Json value){
+		inline Json& push(const Json& value) {
+			return this->push_back(value);
+		}
+
+		Json& insert(int index, const Json& value){
 			if(this->type == Type::Array){
 				if(index < 0){
 					index += this->size();
 					if(index < 0)
-						return false;
+						return (*this);
 				}
 				if(index == 0)
 					return this->push_front(value);
@@ -439,27 +426,26 @@ namespace ZJSON {
 					if (index < ct) {
 						pre->brother = new Json(value);
 						pre->brother->brother = cur;
-						return true;
 					}
-					else
-						return false;
+					return (*this);
 				}
 			}else
-				return false;
+				return (*this);
 		}
 
-		void clear(){
+		Json& clear(){
 			if(this->type == Type::Array || this->type == Type::Object){
 				if(this->child)
 					deleteJson(this->child);
 				this->child = nullptr;
 			}
+			return (*this);
 		}
 
-		void remove(const string &key, Json *self = nullptr, Json* prev = nullptr)
+		Json& remove(const string &key, Json *self = nullptr, Json* prev = nullptr)
 		{
 			if (key.empty() || (self == nullptr && this->type != Type::Object))
-				return ;
+				return (*this);
 			if (self == nullptr)
 				self = this;
 			Json *cur = self;
@@ -506,6 +492,7 @@ namespace ZJSON {
 				}
 
 			} while (cur);
+			return (*this);
 		}
 
 	private:

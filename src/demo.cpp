@@ -7,8 +7,9 @@ using namespace ZJSON;
 
 int main(int argc, char* argv[])
 {
-	// Json rs(JsonType::Array);
-
+	Json rs(JsonType::Array);
+	rs.add("test").add("test2");
+	std::cout << rs.toString() << std::endl;
 	// Json one;
 	// Json sub(JsonType::Array);
 	// sub.concat("1");
@@ -22,12 +23,12 @@ int main(int argc, char* argv[])
 	// sub.concat("4");
 	// one.add("second", sub);
 	// rs.add(one);
-	std::string szData = "{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":30,\"y\":25}}";
-	Json UserData(szData);
-	std::cout << "type:" << UserData["end"]["x"].toString() << std::endl;
+	// std::string szData = "{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":30,\"y\":25}}";
+	// Json UserData(szData);
+	// std::cout << "type:" << UserData["end"]["x"].toString() << std::endl;
 
-	string strBase = "{\"array\":[\"first\",null],\"true\":true,\"subobj\":{\"field01\":\"obj01\",\"subNumber\":99,\"null\":null},\"age\":10}"; 
-	Json rs(strBase);
+	// string strBase = "{\"array\":[\"first\",null],\"true\":true,\"subobj\":{\"field01\":\"obj01\",\"subNumber\":99,\"null\":null},\"age\":10}"; 
+	// Json rs(strBase);
 
 	std::cout << "parse a object string : " << rs.toString() << std::endl;
 	//string str = "{\"array\":[\"first\",90.12387,null,2,true],\"true\":true,\"false\":false,\"null\":null,\"age\":18,\"score\":12.3456,\"name\":\"kevin\"}";

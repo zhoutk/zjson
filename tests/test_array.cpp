@@ -13,27 +13,16 @@ TEST(TestArray, test_array_1) {
 	long l = 123;
 	long long ll = 56789;
 	Json sub(JsonType::Array);
-	EXPECT_EQ(sub.add("this is the first."), true);
+	sub.add("this is the first.");
 	Json subb(JsonType::Array);
-	EXPECT_EQ(subb.add("the second sub object."), true);
-	EXPECT_EQ(subb.add("the second field."), true);
-	EXPECT_EQ(sub.add("second obj", subb), true);
-	EXPECT_EQ(sub.add("a number", 666), true);
+	subb.add("the second sub object.").add("the second field.");
+	sub.add("second obj", subb).add("a number", 666);
 
-	EXPECT_EQ(ajson.add("long", l), true);
-	EXPECT_EQ(ajson.add("longlong", ll), true);
-	EXPECT_EQ(ajson.add("sex", true), true);
-	EXPECT_EQ(ajson.add("name", data), true);
-	EXPECT_EQ(ajson.add("school-cn", "第八十五中学"), true);
-
-	EXPECT_TRUE(ajson.add("subArray", sub));
-
-	EXPECT_EQ(ajson.add("school-en", "the 85th."), true);
-	EXPECT_EQ(ajson.add("age", 10), true);
-	EXPECT_EQ(ajson.add("scores", 95.98), true);
-	EXPECT_EQ(ajson.add("classroom", f), true);
-	EXPECT_EQ(ajson.add("index", '6'), true);
-	EXPECT_EQ(ajson.add("nullkey", nullptr), true);
+	ajson.add("long", l).add("longlong", ll).add("sex", true)
+		.add("name", data).add("school-cn", "第八十五中学")
+		.add("subArray", sub).add("school-en", "the 85th.")
+		.add("age", 10).add("scores", 95.98).add("classroom", f)
+		.add("index", '6').add("nullkey", nullptr);
 
 	EXPECT_EQ(ajson.toString(), "[123,56789,true,\"kevin\",\"第八十五中学\",[\"this is the first.\",[\"the second sub object.\",\"the second field.\"],666],\"the 85th.\",10,95.98,9.012345,54,null]");
 	EXPECT_EQ(ajson[5].toString(), "[\"this is the first.\",[\"the second sub object.\",\"the second field.\"],666]");
@@ -82,8 +71,8 @@ TEST(TestArray, test_array_1) {
 	arrForExt.add({2,3,5,6,8,9});
 	arrForExt.insert(2, 4);
 	EXPECT_EQ(arrForExt.toString(), "[2,3,4,5,6,8,9]");
-	bool ret = arrForExt.insert(-8, 7);
-	EXPECT_FALSE(ret);
+	Json ret = arrForExt.insert(-8, 7);
+	EXPECT_EQ(ret.toString(), "[2,3,4,5,6,8,9]");
 	arrForExt.insert(-2, 7);
 	EXPECT_EQ(arrForExt.toString(), "[2,3,4,5,6,7,8,9]");
 
