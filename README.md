@@ -39,8 +39,8 @@ task list：
 - [x] Remove intger 
 - [x] pop pop_back pop_front
 - [x] removeFirst removeLast remove(for array)
-- [ ] slice
-- [ ] takes take
+- [x] slice
+- [x] takes take
 - [ ] performance test and comparison for recursive version
 - [ ] algorithm non recursion
 - [ ] performance test and comparison again

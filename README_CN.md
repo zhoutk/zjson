@@ -43,8 +43,8 @@
 - [x] Remove intger  - 删除数组中指定序号元素
 - [x] pop pop_back pop_front
 - [x] removeFirst removeLast remove(for array)
-- [ ] slice
-- [ ] takes take
+- [x] slice
+- [x] takes take
 - [ ] 递归版性能测试与对比
 - [ ] 算法非递归化
 - [ ] 再次性能测试与对比

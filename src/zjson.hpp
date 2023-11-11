@@ -176,10 +176,61 @@ namespace ZJSON {
 			return TYPENAMES[this->type];
 		}
 
-		Json take(const string& key){
+		Json take(const string& key){		//get and remove of Object
 			Json rs = (*this)[key];
 			this->remove(key);
 			return rs;
+		}
+
+		Json take(const int& index) {		//get and remove of Array
+			if (this->type == Type::Array) {
+				Json rs(Type::Error);
+				if (index >= 0 && index < this->size()) {
+					rs = (*this)[index];
+					(*this).remove(index);
+				}
+				return rs;
+			}
+			else
+				return Json(Type::Error);
+		}
+
+		Json takes(int start, int end = 0) {
+			Json rs(Type::Array);
+			if (this->type == Type::Array) {
+				if (end == 0)
+					end = this->size();
+				while (start < end) {
+					rs.push_back(this->take(start));
+					end--;
+				}
+			}
+			return rs;
+		}
+
+		Json slice(int start, int end = 0) {
+			Json rs(Type::Array);
+			if (this->type == Type::Array) {
+				if (end == 0)
+					end = this->size();
+				while (start < end)
+					rs.push_back((*this)[start++]);
+			}
+			return rs;
+		}
+
+		Json first() {
+			if (this->type == Type::Array && this->size() > 0)
+				return (*this)[0];
+			else
+				return Json(Type::Error);
+		}
+
+		Json last() {
+			if (this->type == Type::Array && this->size() > 0)
+				return (*this)[this->size() - 1];
+			else
+				return Json(Type::Error);
 		}
 
 		std::vector<std::string> getAllKeys() const {
