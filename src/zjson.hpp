@@ -404,6 +404,23 @@ namespace ZJSON {
 			return this->push_back(value);
 		}
 
+		Json& pop_front() {
+			if (this->type == Type::Array)
+				return this->removeFirst();
+			else
+				return *this;
+		}
+
+		Json& pop_back() {
+			if (this->type == Type::Array)
+				this->removeLast();
+			else
+				return *this;
+		}
+		inline Json& pop() {
+			return this->pop_back();
+		}
+
 		Json& insert(int index, const Json& value){
 			if(this->type == Type::Array){
 				if(index < 0){
@@ -494,6 +511,47 @@ namespace ZJSON {
 			} while (cur);
 			return (*this);
 		}
+
+	Json& remove(const int& index) {
+		if (this->type == Type::Array) {
+			if (index == 0)
+				return this->removeFirst();
+			else if (index > 0 && index < this->size()) {
+				int ct = 0;
+				Json *pre = this;
+				Json *cur = this->child;
+				while (cur) {
+					if (index == ct++)
+						break;
+					pre = cur;
+					cur = cur->brother;
+				}
+				pre->brother = cur->brother;
+				cur->brother = nullptr;
+				delete cur;
+				return (*this);
+			}
+		}
+		else
+			return (*this);
+	}
+
+	Json& removeFirst() {
+		if (this->type == Type::Array && this->size() > 0) {
+			auto cur = this->child;
+			this->child = cur->brother;
+			cur->brother = nullptr;
+			delete cur;
+		}
+		return *this;
+	}
+
+	Json& removeLast() {
+		if (this->type == Type::Array) 
+			return this->remove(this->size() - 1);
+		else
+			return *this;
+	}
 
 	private:
 		void extendItem(Json* cur){

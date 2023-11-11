@@ -34,8 +34,13 @@ task list：
 - [x] push_back - Json
 - [x] insert - Json
 - [x] clear
-- [x] Remove key
 - [x] std::move
+- [x] Remove key
+- [x] Remove intger 
+- [x] pop pop_back pop_front
+- [x] removeFirst removeLast remove(for array)
+- [ ] slice
+- [ ] takes take
 - [ ] performance test and comparison for recursive version
 - [ ] algorithm non recursion
 - [ ] performance test and comparison again

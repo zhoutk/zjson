@@ -91,4 +91,10 @@ TEST(TestArray, test_array_1) {
 	one.add("second", sub);
 	rs.add(one);
 	EXPECT_EQ(rs.toString(), "[{\"first\":[\"1\",\"2\"]},{\"second\":[\"3\",\"4\"]}]");
+
+	Json arrForRm("[1,2,3,4,5,6,7,8,9]");
+	arrForRm.remove(3).removeFirst().removeLast();
+	EXPECT_EQ(arrForRm.toString(), "[2,3,5,6,7,8]");
+	arrForRm.remove(0).pop().pop_front().pop_back();
+	EXPECT_EQ(arrForRm.toString(), "[5,6]");
 }
