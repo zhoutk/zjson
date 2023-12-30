@@ -449,7 +449,7 @@ namespace ZJSON {
 
 		Json& pop_back() {
 			if (this->type == Type::Array)
-				this->removeLast();
+				return this->removeLast();
 			else
 				return *this;
 		}
@@ -626,7 +626,7 @@ namespace ZJSON {
 					case Type::Array:
 						this->add(cur->name, *cur);
 					default:
-						break;
+						;
 					}
 		}
 

@@ -26,7 +26,7 @@
             "description": "Windows (64)(Debug)",
             "inherits": "windows-base",
             "architecture": {
-                "value": "AMD64",
+                "value": "x64",
                 "strategy": "external"
             },
             "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
