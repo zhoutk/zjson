@@ -99,7 +99,7 @@ TEST(TestObject, test_object_1) {
 	sub20.remove("draw");
 	EXPECT_EQ(sub20.toString(),"{\"yuwen\":66,\"hx\":90,\"arr\":[99,100],\"sub3\":{\"music\":95}}");
 
-	std::vector<Json> arr;
+	Json arr(JsonType::Array);
 	Json sub31;
 	sub31.add("yuwen", 66);
 	sub31.add("draw", 11);
