@@ -208,7 +208,7 @@ namespace ZJSON {
 			return rs;
 		}
 
-		Json slice(int start, int end = 0) {
+		Json slice(int start, int end = 0) const {
 			Json rs(Type::Array);
 			if (this->type == Type::Array) {
 				if (end == 0)
@@ -219,14 +219,14 @@ namespace ZJSON {
 			return rs;
 		}
 
-		Json first() {
+		Json first() const {
 			if (this->type == Type::Array && this->size() > 0)
 				return (*this)[0];
 			else
 				return Json(Type::Error);
 		}
 
-		Json last() {
+		Json last() const {
 			if (this->type == Type::Array && this->size() > 0)
 				return (*this)[this->size() - 1];
 			else
@@ -277,21 +277,6 @@ namespace ZJSON {
 				}
 			}
 			return (*this);
-		}
-
-		Json& add(string name, std::vector<Json> items){
-			if(items.empty())
-				return (*this);
-			if (this->type == Type::Object){
-				Json arr(Type::Array);
-				for (Json item : items)
-				{
-					arr.add(item);
-				}
-				return this->add(name, std::move(arr));
-			}else{
-				return (*this);
-			}
 		}
 
 		bool isError() const {
@@ -580,11 +565,9 @@ namespace ZJSON {
 				pre->brother = cur->brother;
 				cur->brother = nullptr;
 				delete cur;
-				return (*this);
 			}
 		}
-		else
-			return (*this);
+		return (*this);
 	}
 
 	Json& removeFirst() {
@@ -602,6 +585,22 @@ namespace ZJSON {
 			return this->remove(this->size() - 1);
 		else
 			return *this;
+	}
+
+	int indexOf(string value) {
+		if (this->type == Type::Array) {
+			int ct = 0;
+			Json* cur = this->child;
+			Json rs(Type::Error);
+			while (cur && cur->toString().compare(value) != 0)
+			{
+				cur = cur->brother;
+				ct++;
+			}
+			return this->size() <= ct ? -1 : ct;
+		}
+		else
+			return -1;
 	}
 
 	private:
@@ -856,7 +855,9 @@ namespace ZJSON {
 			else if (json->type == Type::Number) {
 				string intOrDoub = "";
 				double temp = std::get<double>(json->data);
-				if (temp == (long long)temp)
+				if (std::abs(temp) < 0.000001)
+					intOrDoub = "0";
+				else if (temp == (long long)temp)
 					intOrDoub = std::to_string((long long)temp);
 				else {
 					intOrDoub = std::to_string(temp);
