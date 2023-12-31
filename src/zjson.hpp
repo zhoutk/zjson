@@ -861,7 +861,10 @@ namespace ZJSON {
 					intOrDoub = std::to_string((long long)temp);
 				else {
 					intOrDoub = std::to_string(temp);
-					intOrDoub.erase(intOrDoub.find_last_not_of('0') + 1);
+					if (Utils::stringEndWith(intOrDoub, "0")) {
+						intOrDoub.erase(intOrDoub.find_last_not_of('0') + 1);
+						intOrDoub.erase(intOrDoub.find_last_not_of('.') + 1);
+					}
 				}
 
 				result += (isObj ? "\"" + json->name + "\":" : "") + intOrDoub + ",";
