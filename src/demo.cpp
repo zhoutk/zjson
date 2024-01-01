@@ -28,8 +28,10 @@ int main(int argc, char* argv[])
 	}
 	rs.add("data", data);
 	time_t t1 = GetCurrentTimeMsec();
-	std::cout << " --- using time count : " << t1 - bg << std::endl;
 	rs.toString();
+	time_t t2 = GetCurrentTimeMsec();
 	std::cout << rs.toString() << std::endl;
-	std::cout << " --- using time count : " << GetCurrentTimeMsec() - t1 << std::endl;
+	std::cout << " --- generate json using time count : " << t1 - bg << std::endl;
+	std::cout << " --- json toString using time count : " << t2 - t1 << std::endl;
+	std::cout << " --- show json string using time count : " << GetCurrentTimeMsec() - t2 << std::endl;
 }
