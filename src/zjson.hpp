@@ -297,7 +297,23 @@ namespace ZJSON {
 				return (*this);
 		}
 
+		Json& add(const Json& value) {
+			if (this->type == Type::Array)
+				return add("", value);
+			else
+				return (*this);
+		}
+
 		template<typename T> Json& add(string name, T value) {
+			if (this->type == Type::Object || this->type == Type::Array) {
+				Json* node = new Json(value);
+				node->name = name;
+				appendNodeToJson(node);
+			}
+			return (*this);
+		}
+
+		Json& add(string name, const Json& value) {
 			if (this->type == Type::Object || this->type == Type::Array) {
 				Json* node = new Json(value);
 				node->name = name;
