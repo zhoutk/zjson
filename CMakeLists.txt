@@ -13,7 +13,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-set(CMAKE_BUILD_TYPE Debug)  # Use `cmake -DCMAKE_BUILD_TYPE=Debug` more better
+# set(CMAKE_BUILD_TYPE Debug)  # Use `cmake -DCMAKE_BUILD_TYPE=Debug` more better
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 
 if(MSVC)
@@ -40,7 +40,7 @@ source_group("Head Files" FILES ${HEAD_FILES} )
 add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEAD_FILES} )
 
 ##--------------------- Build unit tests -----------------------------------##
-option(CMAKE_ZJSON_ENABLE_TEST "Whether to enable unit tests" ON)
+option(CMAKE_ZJSON_ENABLE_TEST "Whether to enable unit tests" OFF)
 if (CMAKE_ZJSON_ENABLE_TEST)
     message(STATUS "Unit tests enabled")
     enable_testing()

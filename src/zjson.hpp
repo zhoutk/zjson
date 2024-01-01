@@ -1,8 +1,7 @@
 #pragma once
-#include "utils.hpp"
 #include <string>
 #include <variant>
-#include <any>
+#include <vector>
 #include <iostream>
 #include <algorithm>
 #include <limits>
@@ -13,6 +12,22 @@ namespace ZJSON {
 
     using std::string;
     using std::move;
+
+	static inline bool stringContain(const string& str, const string& to) {
+		return str.find(to) != string::npos;
+	}
+
+	static inline bool stringEqualTo(const string& str, const string& to) {
+		return str.compare(to) == 0;
+	}
+
+	static inline bool stringEndWith(const string& str, const string& tail) {
+		return str.compare(str.size() - tail.size(), tail.size(), tail) == 0;
+	}
+
+	static inline bool stringStartWith(const string& str, const string& head) {
+		return str.compare(0, head.size(), head) == 0;
+	}
 
 	enum class JsonType
 	{
@@ -36,7 +51,8 @@ namespace ZJSON {
 		Json* brother;
 		Json* child;
 		Type type;
-		std::variant <int, bool, double, string> data;
+		string valueString;
+		double valueNumber;
 		string name;
 
 		static Json parse(const std::string &in, std::string &err)
@@ -68,7 +84,6 @@ namespace ZJSON {
 		Json(Type type) {
 			this->brother = nullptr;
 			this->child = nullptr;
-			this->name = "";
 			this->type = type;
 		}
 
@@ -76,12 +91,36 @@ namespace ZJSON {
 		Json(JsonType type = JsonType::Object) {
 			this->brother = nullptr;
 			this->child = nullptr;
-			this->name = "";
 			this->type = (Type)type;
 		}
 
 		template<typename T> Json(T value){
-			*this = *makeValueJson(value);
+			this->brother = nullptr;
+			this->child = nullptr;
+			this->valueNumber = value;
+			this->type = Type::Number;
+		}
+
+		explicit Json(string jsonStr) : Json(Type::Error) {
+			string err;
+			*this = parse(jsonStr, err);
+		}
+
+		Json(char * jsonStr) : Json(Type::Error) {
+			string err;
+			*this = parse(jsonStr, err);
+		}
+
+		Json(const bool& value) {
+			this->brother = nullptr;
+			this->child = nullptr;
+			this->type = value ? Type::True : Type::False;
+		}
+
+		Json(const std::nullptr_t&) {
+			this->brother = nullptr;
+			this->child = nullptr;
+			this->type = Type::Null;
 		}
 
 		Json(const Json& origin) {
@@ -93,13 +132,9 @@ namespace ZJSON {
 				addValueJson(origin.child ? origin.child->name : "", *origin.child);
 			}else{
 				this->name = origin.name;
-				this->data = origin.data;
+				this->valueString = origin.valueString;
+				this->valueNumber = origin.valueNumber;
 			}
-		}
-
-		explicit Json(string jsonStr) : Json(Type::Error){
-			string err;
-			*this = parse(jsonStr, err);
 		}
 
 		explicit Json(std::initializer_list<std::pair<const std::string, Json>> values){
@@ -117,7 +152,8 @@ namespace ZJSON {
 			this->child = rhs.child;
 			this->brother = rhs.brother;
 			this->name = rhs.name;
-			this->data = rhs.data;
+			this->valueString = rhs.valueString;
+			this->valueNumber = rhs.valueNumber;
 			rhs.child = nullptr;
 			rhs.brother = nullptr;
 		}
@@ -263,18 +299,9 @@ namespace ZJSON {
 
 		template<typename T> Json& add(string name, T value) {
 			if (this->type == Type::Object || this->type == Type::Array) {
-				string typeStr = GetTypeName(T);
-				if(this->type == Type::Array)
-					name = "";
-				if(Utils::stringContain(typeStr, "ZJSON::Json")){
-					std::any data = value;
-					Json temp = std::any_cast<Json>(data);
-					addValueJson(name, temp);
-				}else{
-					Json * node = makeValueJson(value, name, typeStr);
-					if(!node->isError())
-						appendNodeToJson(node);
-				}
+				Json* node = new Json(value);
+				node->name = name;
+				appendNodeToJson(node);
 			}
 			return (*this);
 		}
@@ -344,7 +371,7 @@ namespace ZJSON {
 				if(this->type == Type::String)
 					return result.substr(1, result.length() - 3);
 				else
-					return Utils::stringEndWith(result, ",") ? result.substr(0, result.length() - 1) : result;
+					return stringEndWith(result, ",") ? result.substr(0, result.length() - 1) : result;
 			}
 		}
 
@@ -354,11 +381,7 @@ namespace ZJSON {
 
 		double toDouble() const {
 			if(this->type == Type::Number){
-				const double * rs = std::get_if<double>(&this->data);
-				if(rs)
-					return (*rs);
-				else
-					return 0.0;
+				return valueNumber;
 			}else if(this->type == Type::String){
 				return atof(this->toString().c_str());
 			}else
@@ -617,10 +640,10 @@ namespace ZJSON {
 						this->add(cur->name, nullptr);
 						break;
 					case Type::Number:
-						this->add(cur->name, cur->toDouble());
+						this->add(cur->name, cur->valueNumber);
 						break;
 					case Type::String:
-						this->add(cur->name, std::get<std::string>(cur->data));
+						this->add(cur->name, cur->valueString);
 						break;
 					case Type::Object:
 					case Type::Array:
@@ -628,75 +651,6 @@ namespace ZJSON {
 					default:
 						;
 					}
-		}
-
-		template<typename T> Json* makeValueJson(T value, string name = "", string typeStr = ""){
-			if(typeStr.empty()){
-				typeStr = GetTypeName(T);
-				//std::cout << "The key : " << name << " ; the type string : " << typeStr << std::endl;
-			}
-
-			Json* node = new Json();
-			std::any data = value;
-			node->name = name;
-			if (Utils::stringEqualTo(typeStr, "int") || 
-				Utils::stringEqualTo(typeStr, "double") ||
-				Utils::stringEqualTo(typeStr, "char") ||
-				Utils::stringEqualTo(typeStr, "long") ||
-				Utils::stringEqualTo(typeStr, "__int64") ||
-				Utils::stringEqualTo(typeStr, "long long") ||
-				Utils::stringEqualTo(typeStr, "float")
-				) {
-				node->type = Type::Number;
-				double dd = 0.0;
-				if(Utils::stringEqualTo(typeStr, "int"))
-					dd = std::any_cast<int>(data);
-				else if(Utils::stringEqualTo(typeStr, "float"))
-					dd = std::any_cast<float>(data);
-				else if (Utils::stringEqualTo(typeStr, "char")) {
-					dd = std::any_cast<char>(data);
-				}
-				else if (Utils::stringEqualTo(typeStr, "long"))
-					dd = std::any_cast<long>(data);
-				else if (Utils::stringEqualTo(typeStr, "__int64") || Utils::stringEqualTo(typeStr, "long long"))
-					dd = std::any_cast<long long>(data);
-				else
-					dd = std::any_cast<double>(data);
-				node->data = dd;
-			}
-			else if (Utils::stringStartWith(typeStr, "char*") || Utils::stringStartWith(typeStr, "char *") || Utils::stringStartWith(typeStr, "char const") || Utils::stringContain(typeStr, "::basic_string<")) {
-				string v;
-				if (Utils::stringStartWith(typeStr, "char const"))
-					v = std::any_cast<char const*>(data);
-				else if (Utils::stringStartWith(typeStr, "char*") || Utils::stringStartWith(typeStr, "char *"))
-					v = std::any_cast<char *>(data);
-				else
-					v = std::any_cast<string>(data);
-				auto it = std::find_if_not(v.begin(), v.end(), [](unsigned char x){return std::isspace(x);});
-				if(it != v.end() && (*it == '{' || *it == '[')){
-					delete node;
-					Json* t = new Json(v);
-					t->name = name;
-					return t;
-				}
-				node->type = Type::String;
-				node->data = v;
-			}
-			else if (Utils::stringEqualTo(typeStr, "bool")) {
-				bool dd = std::any_cast<bool>(data);
-				if (dd)
-					node->type = Type::True;
-				else
-					node->type = Type::False;
-				node->data = dd;
-			}
-			else if (Utils::stringContain(typeStr, "nullptr")) {
-				node->type = Type::Null;
-			}
-			else {
-				return new Json(Type::Error);
-			}
-			return node;
 		}
 
 		void appendNodeToJson(Json* node, Json * self = nullptr)
@@ -747,7 +701,8 @@ namespace ZJSON {
 					Json *subContent = new Json();
 					subContent->type = cur->type;
 					subContent->name = cur->name;
-					subContent->data = cur->data;
+					subContent->valueNumber = cur->valueNumber;
+					subContent->valueString = cur->valueString;
 					appendNodeToJson(subContent, self);
 				}
 				cur = cur->brother;
@@ -841,7 +796,7 @@ namespace ZJSON {
 					result.append(json->type == Type::Object ? "{" : "[");
 				if (json->child)
 					toString(json->child, result, deep + 1, json->type == Json::Type::Object);
-				if (Utils::stringEndWith(result, ","))
+				if (stringEndWith(result, ","))
 					result = result.substr(0, result.length() - 1);
 				if(deep > 0)
 					result += (json->type == Type::Object ? "}," : "],");
@@ -849,19 +804,19 @@ namespace ZJSON {
 					result += (json->type == Type::Object ? "}" : "]");
 			}
 			else if (json->type == Type::String) {
-				string v = std::get<std::string>(json->data);
+				string v = json->valueString;
 				result += (isObj ? "\"" + json->name + "\":\"" : "\"") + v + "\",";
 			}
 			else if (json->type == Type::Number) {
 				string intOrDoub = "";
-				double temp = std::get<double>(json->data);
+				double temp = json->valueNumber;
 				if (std::abs(temp) < 0.000001)
 					intOrDoub = "0";
 				else if (temp == (long long)temp)
 					intOrDoub = std::to_string((long long)temp);
 				else {
 					intOrDoub = std::to_string(temp);
-					if (Utils::stringEndWith(intOrDoub, "0")) {
+					if (stringEndWith(intOrDoub, "0")) {
 						intOrDoub.erase(intOrDoub.find_last_not_of('0') + 1);
 						intOrDoub.erase(intOrDoub.find_last_not_of('.') + 1);
 					}
@@ -1015,7 +970,7 @@ namespace ZJSON {
 
 				if (str[i] != '.' && str[i] != 'e' && str[i] != 'E'
 						&& (i - start_pos) <= static_cast<size_t>(std::numeric_limits<int>::digits10)) {
-					rs.data = (double)std::atoi(str.c_str() + start_pos);
+					rs.valueNumber = (double)std::atoi(str.c_str() + start_pos);
 					return rs;
 				}
 
@@ -1041,7 +996,7 @@ namespace ZJSON {
 						i++;
 				}
 
-				rs.data = std::strtod(str.c_str() + start_pos, nullptr);
+				rs.valueNumber = std::strtod(str.c_str() + start_pos, nullptr);
 				return rs;
 			}
 
@@ -1162,7 +1117,7 @@ namespace ZJSON {
 
 				if (ch == '"'){
 					Json jsonString(Type::String);
-					jsonString.data = parse_string();
+					jsonString.valueString = parse_string();
 					return jsonString;
 				}
 
