@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
-#include <queue>
+#include <stack>
 #include <iostream>
 #include <algorithm>
 #include <limits>
@@ -11,10 +11,10 @@ namespace ZJSON {
 	using std::string;
 	using std::move;
 	using std::vector;
-	using std::queue;
+	using std::stack;
 
 	static const int max_depth = 100;
-	const std::array<string, 8> TYPENAMES {"Error", "False", "True", "Null", "Number", "String", "Object", "Array"};
+	static const std::array<string, 8> TYPENAMES {"Error", "False", "True", "Null", "Number", "String", "Object", "Array"};
 
 	static inline bool stringContain(const string& str, const string& to) {
 		return str.find(to) != string::npos;
@@ -395,7 +395,10 @@ namespace ZJSON {
 			}
 			else {
 				string result;
-				this->toString(this, result, 0, this->type == Type::Object); //this->toString(this, result);
+				if (this->child)
+					this->toString(this, result);		//this->toString(this, result, 0, this->type == Type::Object); 
+				else
+					this->valueJsonToString(this, result, false);
 				if(this->type == Type::String)
 					return result.substr(1, result.length() - 3);
 				else
@@ -847,108 +850,83 @@ namespace ZJSON {
 			}
 		}
 
-		void toString(const Json* json, string& result, int deep = 0, bool isObj = true) const {
-			if (json->type == Type::Object || json->type == Type::Array) {
-				if (deep > 0)
-					result.append(isObj ? "\"" + json->name + "\":" : "")
-					.append(json->type == Type::Object ? "{" : "[");
-				else
-					result.append(json->type == Type::Object ? "{" : "[");
-				if (json->child)
-					toString(json->child, result, deep + 1, json->type == Type::Object);
-				if (stringEndWith(result, ","))
-					result = result.substr(0, result.length() - 1);
+		//void toString2(const Json* json, string& result, int deep = 0, bool isObj = true) const {
+		//	if (json->type == Type::Object || json->type == Type::Array) {
+		//		if (deep > 0)
+		//			result.append(isObj ? "\"" + json->name + "\":" : "")
+		//			.append(json->type == Type::Object ? "{" : "[");
+		//		else
+		//			result.append(json->type == Type::Object ? "{" : "[");
+		//		if (json->child)
+		//			toString2(json->child, result, deep + 1, json->type == Type::Object);
+		//		if (stringEndWith(result, ","))
+		//			result = result.substr(0, result.length() - 1);
 
-				if (deep > 0)
-					result += (json->type == Type::Object ? "}," : "],");
-				else
-					result += (json->type == Type::Object ? "}" : "]");
-			}
-			else
-				valueJsonToString(json, result, isObj);
+		//		if (deep > 0)
+		//			result += (json->type == Type::Object ? "}," : "],");
+		//		else
+		//			result += (json->type == Type::Object ? "}" : "]");
+		//	}
+		//	else
+		//		valueJsonToString(json, result, isObj);
 
-			if (json->brother) {
-				toString(json->brother, result, deep, isObj);
-			}
-		}
+		//	if (json->brother) {
+		//		toString2(json->brother, result, deep, isObj);
+		//	}
+		//}
 
-		void toString2(const Json* json, string & result) const {
-			if (json && json->child) {
-				queue<queue<Json*>> ss;
-				queue<Json*>hs;
-				hs.push((Json*)json);
-				Json* sch = json->child;
-				if (sch) {
-					Json* curBrother = sch;
-					queue<Json*>s;
-					while (curBrother) {
-						s.push(curBrother);
-						curBrother = curBrother->brother;
+		void toString(const Json* json, string & result) const {
+			stack<Json*> s;
+			bool flag = true;
+			Json* cur = (Json*)json;
+			if (cur) {
+				result.append(cur->type == Type::Object ? "{" : "[");
+				s.push(cur);
+			} else
+				return;
+			cur = cur->child;
+			while (cur || !s.empty()) {
+				if (cur) {
+					if (cur->child) {
+						result.append(cur->type == Type::Object ? "\"" + cur->name + "\":" : "")
+							.append(cur->type == Type::Object ? "{" : "[");
+						s.push(cur);
+						cur = cur->child;
 					}
-					ss.push(s);
+					else {
+						flag = true;
+						while (cur) {
+							valueJsonToString(cur, result, s.top()->type == Type::Object);
+							cur = cur->brother;
+							if (cur && cur->child) {
+								flag = false;
+								break;
+							}
+						}
+						if (flag && !s.empty()) {
+							if (stringEndWith(result, ","))
+								result = result.substr(0, result.length() - 1);
+							result.append(s.top()->type == Type::Object ? "}," : "],");
+						}
+					}
 				}
-				result.append(json->type == Type::Object ? "{" : "[");
-				while (!ss.empty())
-				{
-					queue<Json*> al = ss.front();
-					if (al.empty())
-						break;
-					bool isObj = hs.front()->type == Type::Object;
-					hs.pop();
-					while (!al.empty()) {
-						Json* cur = al.front();
-						al.pop();
-						if (cur->type == Type::Object || cur->type == Type::Array) {
-							sch = cur;
-							if (sch) {
-								Json* curBrother = nullptr;
-								if (sch && (sch->type == Type::Object || sch->type == Type::Array)) {
-									hs.push(sch);
-									result.append(sch->type == Type::Object ? "{" : "[");
-									curBrother = sch->child;
-								}else if(sch)
-									curBrother = sch;
-								queue<Json*>s;
-								while (curBrother) {
-									s.push(curBrother);
-									curBrother = curBrother->brother;
-								}
-								ss.push(s);
-							}
+				else if (!s.empty()) {
+					cur = s.top()->brother;
+					s.pop();
+					flag = true;
+					while (cur) {
+						if (cur->child) {
+							flag = false;
+							break;
 						}
-						else if (cur->type == Type::String) {
-							string v = cur->valueString;
-							result += (isObj ? "\"" + cur->name + "\":\"" : "\"") + v + "\",";
-						}
-						else if (cur->type == Type::Number) {
-							string intOrDoub = "";
-							double temp = cur->valueNumber;
-							if (std::abs(temp) < 0.000001)
-								intOrDoub = "0";
-							else if (temp == (long long)temp)
-								intOrDoub = std::to_string((long long)temp);
-							else {
-								intOrDoub = std::to_string(temp);
-								if (stringEndWith(intOrDoub, "0")) {
-									intOrDoub.erase(intOrDoub.find_last_not_of('0') + 1);
-									intOrDoub.erase(intOrDoub.find_last_not_of('.') + 1);
-								}
-							}
-
-							result += (isObj ? "\"" + cur->name + "\":" : "") + intOrDoub + ",";
-						}
-						else if (cur->type == Type::True) {
-							result += (isObj ? "\"" + cur->name + "\":" : "") + "true,";
-						}
-						else if (cur->type == Type::False) {
-							result += (isObj ? "\"" + cur->name + "\":" : "") + "false,";
-						}
-						else if (cur->type == Type::Null) {
-							result += (isObj ? "\"" + cur->name + "\":" : "") + "null,";
-						}
+						valueJsonToString(cur, result, s.top()->type == Type::Object);
+						cur = cur->brother;
 					}
-					result.append(isObj ? "}," : "],");
-					ss.pop();
+					if (flag && !s.empty()) {
+						if (stringEndWith(result, ","))
+							result = result.substr(0, result.length() - 1);
+						result.append(s.top()->type == Type::Object ? "}," : "],");
+					}
 				}
 			}
 		}
