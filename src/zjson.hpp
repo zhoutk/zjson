@@ -317,18 +317,18 @@ namespace ZJSON {
 		}
 
 		template<typename T> Json& add(string name, T value) {
-			if (this->type == Type::Object || this->type == Type::Array) {
+			if (!name.empty() && this->type == Type::Object || this->type == Type::Array) {
 				Json* node = new Json(value);
-				node->name = name;
+				node->name = this->type == Type::Object ? name : "";
 				appendNodeToJson(node);
 			}
 			return (*this);
 		}
 
 		Json& add(string name, const Json& value) {
-			if (this->type == Type::Object || this->type == Type::Array) {
+			if (!name.empty() && this->type == Type::Object || this->type == Type::Array) {
 				Json* node = new Json(value);
-				node->name = name;
+				node->name = this->type == Type::Object ? name : "";
 				appendNodeToJson(node);
 			}
 			return (*this);
@@ -888,7 +888,7 @@ namespace ZJSON {
 			while (cur || !s.empty()) {
 				if (cur) {
 					if (cur->child) {
-						result.append(cur->type == Type::Object ? "\"" + cur->name + "\":" : "")
+						result.append(cur->name.empty() ? "" : "\"" + cur->name + "\":")
 							.append(cur->type == Type::Object ? "{" : "[");
 						s.push(cur);
 						cur = cur->child;
