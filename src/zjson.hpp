@@ -1,6 +1,5 @@
 #pragma once
 #include <string>
-#include <variant>
 #include <vector>
 #include <iostream>
 #include <algorithm>
@@ -35,19 +34,21 @@ namespace ZJSON {
 		Array = 7
 	};
 
+	enum class Type {
+		Error,
+		False,
+		True,
+		Null,
+		Number,
+		String,
+		Object,
+		Array
+	};
+
+	const std::array<string, 8> TYPENAMES {"Error", "False", "True", "Null", "Number", "String", "Object", "Array"};
+
 	class Json final {
 	private:
-		enum Type {
-			Error,
-			False,
-			True,
-			Null,
-			Number,
-			String,
-			Object,
-			Array
-		};
-		std::array<string, 8> TYPENAMES {"Error", "False", "True", "Null", "Number", "String", "Object", "Array"};
 		Json* brother;
 		Json* child;
 		Type type;
@@ -85,6 +86,7 @@ namespace ZJSON {
 			this->brother = nullptr;
 			this->child = nullptr;
 			this->type = type;
+			this->valueNumber = 0;
 		}
 
 	public:
@@ -209,7 +211,7 @@ namespace ZJSON {
 		}
 
 		string getValueType() const {
-			return TYPENAMES[this->type];
+			return TYPENAMES[static_cast<int>(this->type)];
 		}
 
 		Json take(const string& key){		//get and remove of Object
@@ -811,7 +813,7 @@ namespace ZJSON {
 				else
 					result.append(json->type == Type::Object ? "{" : "[");
 				if (json->child)
-					toString(json->child, result, deep + 1, json->type == Json::Type::Object);
+					toString(json->child, result, deep + 1, json->type == Type::Object);
 				if (stringEndWith(result, ","))
 					result = result.substr(0, result.length() - 1);
 				if(deep > 0)
