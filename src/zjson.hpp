@@ -94,19 +94,19 @@ namespace ZJSON {
 			this->type = (Type)type;
 		}
 
-		template<typename T> Json(T value){
+		template<typename T> Json(const T& value){
 			this->brother = nullptr;
 			this->child = nullptr;
 			this->valueNumber = value;
 			this->type = Type::Number;
 		}
 
-		explicit Json(string jsonStr) : Json(Type::Error) {
+		Json(const string& jsonStr) : Json(Type::Error) {
 			string err;
 			*this = parse(jsonStr, err);
 		}
 
-		Json(char * jsonStr) : Json(Type::Error) {
+		Json(const char * jsonStr) : Json(Type::Error) {
 			string err;
 			*this = parse(jsonStr, err);
 		}
