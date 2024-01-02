@@ -815,23 +815,8 @@ namespace ZJSON {
 			}
 		}
 
-		void toString(const Json* json, string& result, int deep = 0, bool isObj = true) const {
-			if (json->type == Type::Object || json->type == Type::Array) {
-				if (deep > 0)
-					result.append(isObj ? "\"" + json->name + "\":" : "")
-					.append(json->type == Type::Object ? "{" : "[");
-				else
-					result.append(json->type == Type::Object ? "{" : "[");
-				if (json->child)
-					toString(json->child, result, deep + 1, json->type == Type::Object);
-				if (stringEndWith(result, ","))
-					result = result.substr(0, result.length() - 1);
-				if (deep > 0)
-					result += (json->type == Type::Object ? "}," : "],");
-				else
-					result += (json->type == Type::Object ? "}" : "]");
-			}
-			else if (json->type == Type::String) {
+		void valueJsonToString(const Json* json, string& result, bool isObj = true) const {
+			if (json->type == Type::String) {
 				string v = json->valueString;
 				result += (isObj ? "\"" + json->name + "\":\"" : "\"") + v + "\",";
 			}
@@ -860,6 +845,27 @@ namespace ZJSON {
 			else if (json->type == Type::Null) {
 				result += (isObj ? "\"" + json->name + "\":" : "") + "null,";
 			}
+		}
+
+		void toString(const Json* json, string& result, int deep = 0, bool isObj = true) const {
+			if (json->type == Type::Object || json->type == Type::Array) {
+				if (deep > 0)
+					result.append(isObj ? "\"" + json->name + "\":" : "")
+					.append(json->type == Type::Object ? "{" : "[");
+				else
+					result.append(json->type == Type::Object ? "{" : "[");
+				if (json->child)
+					toString(json->child, result, deep + 1, json->type == Type::Object);
+				if (stringEndWith(result, ","))
+					result = result.substr(0, result.length() - 1);
+
+				if (deep > 0)
+					result += (json->type == Type::Object ? "}," : "],");
+				else
+					result += (json->type == Type::Object ? "}" : "]");
+			}
+			else
+				valueJsonToString(json, result, isObj);
 
 			if (json->brother) {
 				toString(json->brother, result, deep, isObj);
