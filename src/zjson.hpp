@@ -7,10 +7,11 @@
 #include <array>
 
 namespace ZJSON {
-	static const int max_depth = 100;
+	using std::string;
+	using std::move;
 
-    using std::string;
-    using std::move;
+	static const int max_depth = 100;
+	const std::array<string, 8> TYPENAMES {"Error", "False", "True", "Null", "Number", "String", "Object", "Array"};
 
 	static inline bool stringContain(const string& str, const string& to) {
 		return str.find(to) != string::npos;
@@ -44,8 +45,6 @@ namespace ZJSON {
 		Object,
 		Array
 	};
-
-	const std::array<string, 8> TYPENAMES {"Error", "False", "True", "Null", "Number", "String", "Object", "Array"};
 
 	class Json final {
 	private:
@@ -106,11 +105,19 @@ namespace ZJSON {
 		Json(const string& jsonStr) : Json(Type::Error) {
 			string err;
 			*this = parse(jsonStr, err);
+			if (this->isError()) {
+				this->type = Type::String;
+				this->valueString = jsonStr;
+			}
 		}
 
 		Json(const char * jsonStr) : Json(Type::Error) {
 			string err;
 			*this = parse(jsonStr, err);
+			if (this->isError()) {
+				this->type = Type::String;
+				this->valueString = jsonStr;
+			}
 		}
 
 		Json(const bool& value) {

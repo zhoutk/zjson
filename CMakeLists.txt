@@ -39,7 +39,7 @@ source_group("Head Files" FILES ${HEAD_FILES} )
 add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEAD_FILES} )
 
 ##--------------------- Build unit tests -----------------------------------##
-option(CMAKE_ZJSON_ENABLE_TEST "Whether to enable unit tests" OFF)
+option(CMAKE_ZJSON_ENABLE_TEST "Whether to enable unit tests" ON)
 if (CMAKE_ZJSON_ENABLE_TEST)
     message(STATUS "Unit tests enabled")
     enable_testing()
