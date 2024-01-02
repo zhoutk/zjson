@@ -4,7 +4,7 @@
 
 using namespace ZJSON;
 
-const int LEN = 1;
+const int LEN = 300;
 
 time_t GetCurrentTimeMsec() {
 	auto time = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());

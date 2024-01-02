@@ -395,7 +395,7 @@ namespace ZJSON {
 			}
 			else {
 				string result;
-				this->toString(this, result);
+				this->toString(this, result, 0, this->type == Type::Object); //this->toString(this, result);
 				if(this->type == Type::String)
 					return result.substr(1, result.length() - 3);
 				else
@@ -815,7 +815,58 @@ namespace ZJSON {
 			}
 		}
 
-		void toString(const Json* json, string & result) const {
+		void toString(const Json* json, string& result, int deep = 0, bool isObj = true) const {
+			if (json->type == Type::Object || json->type == Type::Array) {
+				if (deep > 0)
+					result.append(isObj ? "\"" + json->name + "\":" : "")
+					.append(json->type == Type::Object ? "{" : "[");
+				else
+					result.append(json->type == Type::Object ? "{" : "[");
+				if (json->child)
+					toString(json->child, result, deep + 1, json->type == Type::Object);
+				if (stringEndWith(result, ","))
+					result = result.substr(0, result.length() - 1);
+				if (deep > 0)
+					result += (json->type == Type::Object ? "}," : "],");
+				else
+					result += (json->type == Type::Object ? "}" : "]");
+			}
+			else if (json->type == Type::String) {
+				string v = json->valueString;
+				result += (isObj ? "\"" + json->name + "\":\"" : "\"") + v + "\",";
+			}
+			else if (json->type == Type::Number) {
+				string intOrDoub = "";
+				double temp = json->valueNumber;
+				if (std::abs(temp) < 0.000001)
+					intOrDoub = "0";
+				else if (temp == (long long)temp)
+					intOrDoub = std::to_string((long long)temp);
+				else {
+					intOrDoub = std::to_string(temp);
+					if (stringEndWith(intOrDoub, "0")) {
+						intOrDoub.erase(intOrDoub.find_last_not_of('0') + 1);
+						intOrDoub.erase(intOrDoub.find_last_not_of('.') + 1);
+					}
+				}
+				result += (isObj ? "\"" + json->name + "\":" : "") + intOrDoub + ",";
+			}
+			else if (json->type == Type::True) {
+				result += (isObj ? "\"" + json->name + "\":" : "") + "true,";
+			}
+			else if (json->type == Type::False) {
+				result += (isObj ? "\"" + json->name + "\":" : "") + "false,";
+			}
+			else if (json->type == Type::Null) {
+				result += (isObj ? "\"" + json->name + "\":" : "") + "null,";
+			}
+
+			if (json->brother) {
+				toString(json->brother, result, deep, isObj);
+			}
+		}
+
+		void toString2(const Json* json, string & result) const {
 			if (json && json->child) {
 				queue<queue<Json*>> ss;
 				queue<Json*>hs;
