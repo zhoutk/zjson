@@ -56,6 +56,7 @@ namespace ZJSON {
 	static char globBuffer[100];
 	static long long globIntVar;
 	static bool globBoolVar;
+	static char globStrVar[6] = { "%.5lf" };
 
 	enum class Type {
 		Error,
@@ -846,13 +847,12 @@ namespace ZJSON {
 			}
 			else if (json->type == Type::Number) {
 				globIntVar = (long long)json->valueNumber;
-				if(json->valueNumber == globIntVar)
+				if(std::abs(json->valueNumber - globIntVar) < MinValue)
 					sprintf(globBuffer, "%lld", globIntVar);
 				else {
-					string ff = { "%." };
 					sprintf(globBuffer, "%d", getDecimalCount(json->valueNumber));
-					ff.append(globBuffer).append("lf");
-					sprintf(globBuffer, ff.c_str(), json->valueNumber);
+					globStrVar[2] = globBuffer[0];
+					sprintf(globBuffer, globStrVar, json->valueNumber);
 				}
 				result.append((isObj ? "\"" + json->name + "\":" : "") + globBuffer + ",");
 			}
