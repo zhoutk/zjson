@@ -106,21 +106,23 @@ namespace ZJSON {
 		}
 
 		Json(const string& jsonStr) : Json(Type::Error) {
-			string err;
-			*this = parse(jsonStr, err);
-			if (this->isError()) {
+			auto it = std::find_if_not(jsonStr.begin(), jsonStr.end(), [](unsigned char x) {return std::isspace(x); });
+			if (it != jsonStr.end() && (*it == '{' || *it == '[')) {
+				string err;
+				*this = parse(jsonStr, err);
+				if (this->isError()) {
+					this->type = Type::String;
+					this->valueString = jsonStr;
+				}
+			}
+			else {
 				this->type = Type::String;
 				this->valueString = jsonStr;
 			}
 		}
 
 		Json(const char * jsonStr) : Json(Type::Error) {
-			string err;
-			*this = parse(jsonStr, err);
-			if (this->isError()) {
-				this->type = Type::String;
-				this->valueString = jsonStr;
-			}
+			new (this)Json(string(jsonStr));
 		}
 
 		Json(const bool& value) {
