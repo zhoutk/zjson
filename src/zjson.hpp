@@ -15,6 +15,7 @@ namespace ZJSON {
 
 	static const int max_depth = 100;
 	static const std::array<string, 8> TYPENAMES {"Error", "False", "True", "Null", "Number", "String", "Object", "Array"};
+	static const double MinValue = 0.000001;
 
 	static inline bool stringContain(const string& str, const string& to) {
 		return str.find(to) != string::npos;
@@ -37,6 +38,24 @@ namespace ZJSON {
 		Object = 6,
 		Array = 7
 	};
+
+	static int getDecimalCount(double data) {
+		data = std::abs(data);
+		data -= (int)data;
+		int ct = 0;
+		double minValue = MinValue;
+		while (!(std::abs(data - 1) < minValue || std::abs(data) < minValue) && ct < 6) {
+			data *= 10;
+			data -= (int)data;
+			ct++;
+			minValue *= 10;
+		}
+		return ct;
+	}
+
+	static char globBuffer[100];
+	static long long globIntVar;
+	static bool globBoolVar;
 
 	enum class Type {
 		Error,
@@ -826,20 +845,16 @@ namespace ZJSON {
 				result.append((isObj ? "\"" + json->name + "\":\"" : "\"") + v + "\",");
 			}
 			else if (json->type == Type::Number) {
-				string intOrDoub = "";
-				double temp = json->valueNumber;
-				if (std::abs(temp) < 0.000001)
-					intOrDoub = "0";
-				else if (temp == (long long)temp)
-					intOrDoub = std::to_string((long long)temp);
+				globIntVar = (long long)json->valueNumber;
+				if(json->valueNumber == globIntVar)
+					sprintf(globBuffer, "%lld", globIntVar);
 				else {
-					intOrDoub = std::to_string(temp);
-					if (stringEndWith(intOrDoub, "0")) {
-						intOrDoub.erase(intOrDoub.find_last_not_of('0') + 1);
-						intOrDoub.erase(intOrDoub.find_last_not_of('.') + 1);
-					}
+					string ff = { "%." };
+					sprintf(globBuffer, "%d", getDecimalCount(json->valueNumber));
+					ff.append(globBuffer).append("lf");
+					sprintf(globBuffer, ff.c_str(), json->valueNumber);
 				}
-				result.append((isObj ? "\"" + json->name + "\":" : "") + intOrDoub + ",");
+				result.append((isObj ? "\"" + json->name + "\":" : "") + globBuffer + ",");
 			}
 			else if (json->type == Type::True) {
 				result.append((isObj ? "\"" + json->name + "\":" : "") + "true,");

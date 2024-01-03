@@ -9,7 +9,7 @@ using namespace ZJSON;
 TEST(TestArray, test_array_1) {
 	Json ajson(JsonType::Array);
 	std::string data = "kevin";
-	float f = 9.01234567;
+	float f = 9.012345;
 	long l = 123;
 	long long ll = 56789;
 	Json sub(JsonType::Array);
