@@ -402,7 +402,7 @@ namespace ZJSON {
 				if(this->type == Type::String)
 					return result.substr(1, result.length() - 3);
 				else
-					return stringEndWith(result, ",") ? result.substr(0, result.length() - 1) : result;
+					return stringEndWith(result, ",") ? result.erase(result.length() - 1) : result;
 			}
 		}
 
@@ -821,7 +821,7 @@ namespace ZJSON {
 		void valueJsonToString(const Json* json, string& result, bool isObj = true) const {
 			if (json->type == Type::String) {
 				string v = json->valueString;
-				result += (isObj ? "\"" + json->name + "\":\"" : "\"") + v + "\",";
+				result.append((isObj ? "\"" + json->name + "\":\"" : "\"") + v + "\",");
 			}
 			else if (json->type == Type::Number) {
 				string intOrDoub = "";
@@ -837,16 +837,16 @@ namespace ZJSON {
 						intOrDoub.erase(intOrDoub.find_last_not_of('.') + 1);
 					}
 				}
-				result += (isObj ? "\"" + json->name + "\":" : "") + intOrDoub + ",";
+				result.append((isObj ? "\"" + json->name + "\":" : "") + intOrDoub + ",");
 			}
 			else if (json->type == Type::True) {
-				result += (isObj ? "\"" + json->name + "\":" : "") + "true,";
+				result.append((isObj ? "\"" + json->name + "\":" : "") + "true,");
 			}
 			else if (json->type == Type::False) {
-				result += (isObj ? "\"" + json->name + "\":" : "") + "false,";
+				result.append((isObj ? "\"" + json->name + "\":" : "") + "false,");
 			}
 			else if (json->type == Type::Null) {
-				result += (isObj ? "\"" + json->name + "\":" : "") + "null,";
+				result.append((isObj ? "\"" + json->name + "\":" : "") + "null,");
 			}
 		}
 
@@ -904,9 +904,10 @@ namespace ZJSON {
 							}
 						}
 						if (flag && !s.empty()) {
-							if (stringEndWith(result, ","))
-								result = result.substr(0, result.length() - 1);
-							result.append(s.top()->type == Type::Object ? "}," : "],");
+							if (stringEndWith(result, ",")) {
+								result.insert(result.length() - 1, s.top()->type == Type::Object ? "}" : "]");
+							} else 
+								result.append(s.top()->type == Type::Object ? "}," : "],");
 						}
 					}
 				}
@@ -923,9 +924,10 @@ namespace ZJSON {
 						cur = cur->brother;
 					}
 					if (flag && !s.empty()) {
-						if (stringEndWith(result, ","))
-							result = result.substr(0, result.length() - 1);
-						result.append(s.top()->type == Type::Object ? "}," : "],");
+						if (stringEndWith(result, ",")) {
+							result.insert(result.length() - 1, s.top()->type == Type::Object ? "}" : "]");
+						} else
+							result.append(s.top()->type == Type::Object ? "}," : "],");
 					}
 				}
 			}
