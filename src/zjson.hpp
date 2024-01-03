@@ -281,8 +281,8 @@ namespace ZJSON {
 				return Json(Type::Error);
 		}
 
-		std::vector<std::string> getAllKeys() const {
-			std::vector<std::string> rs;
+		Json getAllKeys() const {
+			Json rs(Type::Array);
 			if(this->type == Type::Object){
 				Json* cur = this->child;
 				while (cur){
@@ -850,7 +850,7 @@ namespace ZJSON {
 			}
 		}
 
-		//void toString2(const Json* json, string& result, int deep = 0, bool isObj = true) const {
+		//void toString(const Json* json, string& result, int deep = 0, bool isObj = true) const {
 		//	if (json->type == Type::Object || json->type == Type::Array) {
 		//		if (deep > 0)
 		//			result.append(isObj ? "\"" + json->name + "\":" : "")
@@ -858,7 +858,7 @@ namespace ZJSON {
 		//		else
 		//			result.append(json->type == Type::Object ? "{" : "[");
 		//		if (json->child)
-		//			toString2(json->child, result, deep + 1, json->type == Type::Object);
+		//			toString(json->child, result, deep + 1, json->type == Type::Object);
 		//		if (stringEndWith(result, ","))
 		//			result = result.substr(0, result.length() - 1);
 
@@ -871,7 +871,7 @@ namespace ZJSON {
 		//		valueJsonToString(json, result, isObj);
 
 		//	if (json->brother) {
-		//		toString2(json->brother, result, deep, isObj);
+		//		toString(json->brother, result, deep, isObj);
 		//	}
 		//}
 

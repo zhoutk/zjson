@@ -126,20 +126,19 @@ TEST(TestObject, test_object_1) {
 	EXPECT_EQ(sub31.take("yuwen").toInt(), 66);
 	EXPECT_EQ(sub31.toString(), "{\"draw\":11,\"hx\":90}");
 
-	auto allKeys = sub31.getAllKeys();
+	Json allKeys = sub31.getAllKeys();
 	std::string allKeyString = "";
-	for(auto al : allKeys)
-		allKeyString.append(al);
+	int len = allKeys.size();
+	for(int i = 0; i < len; i++)
+		allKeyString.append(allKeys[i].toString());
 	EXPECT_EQ(allKeyString, "drawhx");
 
 	Json jsEmpty("{}");
 	EXPECT_EQ(jsEmpty.toString(), "{}");
 
-	auto emptyKeys = jsEmpty.getAllKeys();
-	std::string emptyKeyString = "";
-	for(auto al : emptyKeys)
-		emptyKeyString.append(al);
-	EXPECT_EQ(emptyKeyString, "");
+	Json emptyKeys = jsEmpty.getAllKeys();
+	len = emptyKeys.size();
+	EXPECT_EQ(emptyKeys.size(), 0);
 
 	std::string szData = "{\"start\":{\"x\":1,\"y\":2},\"end\":{\"x\":30,\"y\":25}}";
 	Json jsData(szData);
