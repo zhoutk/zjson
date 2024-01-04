@@ -847,14 +847,16 @@ namespace ZJSON {
 			}
 			else if (json->type == Type::Number) {
 				globIntVar = (long long)json->valueNumber;
-				if(std::abs(json->valueNumber - globIntVar) < MinValue)
+				if (std::abs(json->valueNumber - globIntVar) < MinValue)
 					sprintf(globBuffer, "%lld", globIntVar);
 				else {
 					sprintf(globBuffer, "%d", getDecimalCount(json->valueNumber));
 					globStrVar[2] = globBuffer[0];
 					sprintf(globBuffer, globStrVar, json->valueNumber);
 				}
-				result.append((isObj ? "\"" + json->name + "\":" : "") + globBuffer + ",");
+				if (isObj)
+					result.append("\"").append(json->name).append("\":");
+				result.append(globBuffer).append(",");
 			}
 			else if (json->type == Type::True) {
 				result.append((isObj ? "\"" + json->name + "\":" : "") + "true,");
