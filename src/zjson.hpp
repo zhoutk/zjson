@@ -48,7 +48,7 @@ namespace ZJSON {
 
 	static void floatToCharStar(double data, char* buffer) {
 		data = std::abs(data);
-		data -= (int)data;
+		data -= (long long)data;
 		int ct = 0;
 		memset(buffer, '\0', DecimalLength);
 		double minValue = MinValue;
