@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <limits>
 #include <array>
+#include <cstring>
 
 namespace ZJSON {
 	using std::string;
@@ -16,6 +17,7 @@ namespace ZJSON {
 	static const int max_depth = 100;
 	static const std::array<string, 8> TYPENAMES {"Error", "False", "True", "Null", "Number", "String", "Object", "Array"};
 	static const double MinValue = 0.000001;
+	static const int DecimalLength = 7;
 
 	static inline bool stringContain(const string& str, const string& to) {
 		return str.find(to) != string::npos;
@@ -39,24 +41,31 @@ namespace ZJSON {
 		Array = 7
 	};
 
-	static int getDecimalCount(double data) {
-		data = std::abs(data);
-		data -= (int)data;
-		int ct = 0;
-		double minValue = MinValue;
-		while (!(std::abs(data - 1) < minValue || std::abs(data) < minValue) && ct < 6) {
-			data *= 10;
-			data -= (int)data;
-			ct++;
-			minValue *= 10;
-		}
-		return ct;
-	}
-
 	static char globBuffer[100];
 	static long long globIntVar;
 	static bool globBoolVar;
-	static char globStrVar[6] = { "%.5lf" };
+	static char globDecimalVar[DecimalLength] = { '\0', '\0', '\0' , '\0' , '\0' , '\0', '\0' };
+
+	static void floatToCharStar(double data, char* buffer) {
+		data = std::abs(data);
+		data -= (int)data;
+		int ct = 0;
+		memset(buffer, '\0', DecimalLength);
+		double minValue = MinValue;
+		while (!(std::abs(data - 1) < minValue || std::abs(data) < minValue) && ct < 6) {
+			data *= 10;
+			double nextDataVal = data - (int)data;
+			if ((std::abs(nextDataVal - 1) < minValue || std::abs(nextDataVal) < minValue || ct == 5) && data < 9 && nextDataVal > 0.5) {
+				buffer[ct] = data + 49;
+				break;
+			}
+			else
+				buffer[ct] = data + 48;
+			data = nextDataVal;
+			ct++;
+			minValue *= 10;
+		}
+	}
 
 	enum class Type {
 		Error,
@@ -846,17 +855,16 @@ namespace ZJSON {
 				result.append((isObj ? "\"" + json->name + "\":\"" : "\"") + v + "\",");
 			}
 			else if (json->type == Type::Number) {
-				globIntVar = (long long)json->valueNumber;
-				if (std::abs(json->valueNumber - globIntVar) < MinValue)
-					sprintf(globBuffer, "%lld", globIntVar);
-				else {
-					sprintf(globBuffer, "%d", getDecimalCount(json->valueNumber));
-					globStrVar[2] = globBuffer[0];
-					sprintf(globBuffer, globStrVar, json->valueNumber);
-				}
 				if (isObj)
 					result.append("\"").append(json->name).append("\":");
-				result.append(globBuffer).append(",");
+				globIntVar = (long long)json->valueNumber;
+				sprintf(globBuffer, "%lld", globIntVar);
+				result.append(globBuffer);
+				if (std::abs(json->valueNumber - globIntVar) >= MinValue) {
+					floatToCharStar(json->valueNumber, globDecimalVar);
+					result.append(".").append(globDecimalVar);
+				}
+				result.append(",");
 			}
 			else if (json->type == Type::True) {
 				result.append((isObj ? "\"" + json->name + "\":" : "") + "true,");
