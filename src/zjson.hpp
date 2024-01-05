@@ -4,7 +4,7 @@
 #include <stack>
 #include <iostream>
 #include <algorithm>
-#include <limits>
+#include <limits.h>
 #include <array>
 #include <cstring>
 
@@ -851,29 +851,42 @@ namespace ZJSON {
 
 		void valueJsonToString(const Json* json, string& result, bool isObj = true) const {
 			if (json->type == Type::String) {
-				string v = json->valueString;
-				result.append((isObj ? "\"" + json->name + "\":\"" : "\"") + v + "\",");
+				if (isObj)
+					result.append("\"").append(json->name).append("\":");
+				result.append("\"").append(json->valueString).append("\",");
 			}
 			else if (json->type == Type::Number) {
 				if (isObj)
 					result.append("\"").append(json->name).append("\":");
-				globIntVar = (long long)json->valueNumber;
-				sprintf(globBuffer, "%lld", globIntVar);
-				result.append(globBuffer);
-				if (std::abs(json->valueNumber - globIntVar) >= MinValue) {
-					floatToCharStar(json->valueNumber, globDecimalVar);
-					result.append(".").append(globDecimalVar);
+				if (json->valueNumber > LLONG_MAX || json->valueNumber < LLONG_MIN) {
+					sprintf(globBuffer, "%e", json->valueNumber);
+					result.append(globBuffer);
+				}
+				else {
+					globIntVar = (long long)json->valueNumber;
+					sprintf(globBuffer, "%lld", globIntVar);
+					result.append(globBuffer);
+					if (std::abs(json->valueNumber - globIntVar) >= MinValue) {
+						floatToCharStar(json->valueNumber, globDecimalVar);
+						result.append(".").append(globDecimalVar);
+					}
 				}
 				result.append(",");
 			}
 			else if (json->type == Type::True) {
-				result.append((isObj ? "\"" + json->name + "\":" : "") + "true,");
+				if (isObj)
+					result.append("\"").append(json->name).append("\":");
+				result.append("true,");
 			}
 			else if (json->type == Type::False) {
-				result.append((isObj ? "\"" + json->name + "\":" : "") + "false,");
+				if (isObj)
+					result.append("\"").append(json->name).append("\":");
+				result.append("false,");
 			}
 			else if (json->type == Type::Null) {
-				result.append((isObj ? "\"" + json->name + "\":" : "") + "null,");
+				if (isObj)
+					result.append("\"").append(json->name).append("\":");
+				result.append("null,");
 			}
 		}
 
