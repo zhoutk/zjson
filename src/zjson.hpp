@@ -931,7 +931,7 @@ namespace ZJSON {
 			cur = cur->child;
 			while (cur || !s.empty()) {
 				if (cur) {
-					if (cur->child) {
+					if (cur->type == Type::Object || cur->type == Type::Array) {
 						result.append(cur->name.empty() ? "" : "\"" + cur->name + "\":")
 							.append(cur->type == Type::Object ? "{" : "[");
 						s.push(cur);
@@ -960,7 +960,7 @@ namespace ZJSON {
 					s.pop();
 					flag = true;
 					while (cur) {
-						if (cur->child) {
+						if (cur->type == Type::Object || cur->type == Type::Array) {
 							flag = false;
 							break;
 						}
