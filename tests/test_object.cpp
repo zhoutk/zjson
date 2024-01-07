@@ -136,6 +136,9 @@ TEST(TestObject, test_object_1) {
 	Json jsEmpty("{}");
 	EXPECT_EQ(jsEmpty.toString(), "{}");
 
+	jsEmpty = Json();
+	EXPECT_EQ(jsEmpty.toString(), "{}");
+
 	Json emptyKeys = jsEmpty.getAllKeys();
 	len = emptyKeys.size();
 	EXPECT_EQ(emptyKeys.size(), 0);

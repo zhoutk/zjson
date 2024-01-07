@@ -197,4 +197,7 @@ TEST(TestArray, test_array_1) {
 	EXPECT_EQ(arr.indexOf("21"), -1);
 	EXPECT_EQ(arr.indexOf("-1"), -1);
 
+	Json jsEmptyArr(JsonType::Array);
+	EXPECT_EQ(jsEmptyArr.toString(), "[]");
+
 }

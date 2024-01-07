@@ -426,8 +426,12 @@ namespace ZJSON {
 			}
 			else {
 				string result;
-				if (this->child)
-					this->toString(this, result);		//this->toString(this, result, 0, this->type == Type::Object); 
+				if (this->type == Type::Object || this->type == Type::Array) {
+					if (this->child)
+						this->toString(this, result);		//this->toString(this, result, 0, this->type == Type::Object); 
+					else
+						return this->type == Type::Object ? "{}" : "[]";
+				}
 				else
 					this->valueJsonToString(this, result, false);
 				if(this->type == Type::String)
