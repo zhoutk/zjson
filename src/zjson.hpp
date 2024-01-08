@@ -365,6 +365,15 @@ namespace ZJSON {
 			return (*this);
 		}
 
+		Json& add(string name, Json* value) {
+			if (!name.empty() && this->type == Type::Object || this->type == Type::Array) {
+				value->name = this->type == Type::Object ? name : "";
+				appendNodeToJson(value);
+				value = nullptr;
+			}
+			return (*this);
+		}
+
 		bool isError() const {
 			return this->type == Type::Error;
 		}
