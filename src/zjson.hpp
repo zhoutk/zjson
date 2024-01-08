@@ -180,17 +180,7 @@ namespace ZJSON {
 			}
 		}
 
-		explicit Json(std::initializer_list<std::pair<const std::string, Json>> values){
-			this->child = nullptr;
-			this->brother = nullptr;
-			this->type = Type::Object;
-			for(auto al : values){
-				al.second.name = al.first;
-				this->extendItem(&al.second);
-			}
-		}
-
-		Json(Json&& rhs){
+		Json(Json&& rhs) {
 			this->type = rhs.type;
 			this->child = rhs.child;
 			this->brother = rhs.brother;
@@ -199,6 +189,16 @@ namespace ZJSON {
 			this->valueNumber = rhs.valueNumber;
 			rhs.child = nullptr;
 			rhs.brother = nullptr;
+		}
+
+		explicit Json(std::initializer_list<std::pair<const std::string, Json>> values){
+			this->child = nullptr;
+			this->brother = nullptr;
+			this->type = Type::Object;
+			for(auto al : values){
+				al.second.name = al.first;
+				this->extendItem(&al.second);
+			}
 		}
 
 		~Json(){
@@ -359,6 +359,15 @@ namespace ZJSON {
 		Json& add(string name, const Json& value) {
 			if (!name.empty() && this->type == Type::Object || this->type == Type::Array) {
 				Json* node = new Json(value);
+				node->name = this->type == Type::Object ? name : "";
+				appendNodeToJson(node);
+			}
+			return (*this);
+		}
+
+		Json& add(string name, Json&& value) {
+			if (!name.empty() && this->type == Type::Object || this->type == Type::Array) {
+				Json* node = new Json(std::move(value));
 				node->name = this->type == Type::Object ? name : "";
 				appendNodeToJson(node);
 			}
