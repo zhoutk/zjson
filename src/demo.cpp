@@ -24,9 +24,9 @@ int main(int argc, char* argv[])
 			double anumber = rand() / 1.2345 * 321.567;
 			aline.push(anumber);
 		}
-		data.push(aline);
+		data.push(std::move(aline));
 	}
-	rs.add("data", data);
+	rs.add("data", std::move(data));
 	time_t t1 = GetCurrentTimeMsec();
 	string ourStr = rs.toString();
 	time_t t2 = GetCurrentTimeMsec();
