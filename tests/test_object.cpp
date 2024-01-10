@@ -153,4 +153,9 @@ TEST(TestObject, test_object_1) {
 	EXPECT_EQ(eObj.toString(), "{\"eObj1\":1.234568e+39,\"eObj2\":-9.876543e+120}");
 	EXPECT_EQ(eObj["eObj1"].toDouble(), 1.23456789e+39);
 	EXPECT_EQ(eObj["eObj2"].toDouble(), -9.87654321E120);
+
+	Json fnull;
+	fnull.add("nan-float", std::numeric_limits<float>::quiet_NaN()).add("nan-double", std::numeric_limits<double>::quiet_NaN());
+	EXPECT_TRUE(fnull["nan-float"].isNull());
+	EXPECT_TRUE(fnull["nan-double"].isNull());
 }

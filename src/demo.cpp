@@ -1,6 +1,7 @@
 #include <iostream>
 #include "zjson.hpp"
 #include <chrono>
+#include <limits>
 
 using namespace ZJSON;
 
@@ -17,21 +18,22 @@ int main(int argc, char* argv[])
 	time_t bg = GetCurrentTimeMsec();
 	Json rs;
 	rs.add("code", 200);
-	Json data(JsonType::Array);
-	for (int i = 0; i < LEN; i++) {
-		Json aline(JsonType::Array);
-		for (int j = 0; j < LEN; j++) {
-			double anumber = rand() / 1.2345 * 321.567;
-			aline.push(anumber);
-		}
-		data.push(std::move(aline));
-	}
-	rs.add("data", std::move(data));
-	time_t t1 = GetCurrentTimeMsec();
+	rs.add("std-null-double", std::numeric_limits<double>::quiet_NaN());
+	//Json data(JsonType::Array);
+	//for (int i = 0; i < LEN; i++) {
+	//	Json aline(JsonType::Array);
+	//	for (int j = 0; j < LEN; j++) {
+	//		double anumber = rand() / 1.2345 * 321.567;
+	//		aline.push(anumber);
+	//	}
+	//	data.push(std::move(aline));
+	//}
+	//rs.add("data", std::move(data));
+	//time_t t1 = GetCurrentTimeMsec();
 	string ourStr = rs.toString();
-	time_t t2 = GetCurrentTimeMsec();
+	//time_t t2 = GetCurrentTimeMsec();
 	std::cout << ourStr << std::endl;
-	std::cout << " --- generate json using time count : " << t1 - bg << std::endl;
-	std::cout << " --- json toString using time count : " << t2 - t1 << std::endl;
-	std::cout << " --- show json string using time count : " << GetCurrentTimeMsec() - t2 << std::endl;
+	//std::cout << " --- generate json using time count : " << t1 - bg << std::endl;
+	//std::cout << " --- json toString using time count : " << t2 - t1 << std::endl;
+	//std::cout << " --- show json string using time count : " << GetCurrentTimeMsec() - t2 << std::endl;
 }

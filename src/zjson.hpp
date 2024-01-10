@@ -135,6 +135,28 @@ namespace ZJSON {
 			this->type = Type::Number;
 		}
 
+		Json(const float& value) {
+			if (std::isnan(value))
+				new (this)Json(nullptr);
+			else {
+				this->brother = nullptr;
+				this->child = nullptr;
+				this->valueNumber = value;
+				this->type = Type::Number;
+			}
+		}
+
+		Json(const double& value) {
+			if (std::isnan(value))
+				new (this)Json(nullptr);
+			else {
+				this->brother = nullptr;
+				this->child = nullptr;
+				this->valueNumber = value;
+				this->type = Type::Number;
+			}
+		}
+
 		Json(const string& jsonStr) : Json(Type::Error) {
 			auto it = std::find_if_not(jsonStr.begin(), jsonStr.end(), [](unsigned char x) {return std::isspace(x); });
 			if (it != jsonStr.end() && (*it == '{' || *it == '[')) {
