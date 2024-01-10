@@ -136,9 +136,11 @@ namespace ZJSON {
 		}
 
 		Json(const float& value) {
-			if (std::isnan(value))
-				new (this)Json(nullptr);
-			else {
+			if (std::isnan(value)) {
+				this->brother = nullptr;
+				this->child = nullptr;
+				this->type = Type::Null;
+			} else {
 				this->brother = nullptr;
 				this->child = nullptr;
 				this->valueNumber = value;
@@ -147,9 +149,11 @@ namespace ZJSON {
 		}
 
 		Json(const double& value) {
-			if (std::isnan(value))
-				new (this)Json(nullptr);
-			else {
+			if (std::isnan(value)) {
+				this->brother = nullptr;
+				this->child = nullptr;
+				this->type = Type::Null;
+			} else {
 				this->brother = nullptr;
 				this->child = nullptr;
 				this->valueNumber = value;
