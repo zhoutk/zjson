@@ -849,13 +849,13 @@ namespace ZJSON {
 			while (cur)
 			{
 				if (cur->type == Type::Object || cur->type == Type::Array) {
-					if (cur->child == nullptr)
-						return;
+					/*if (cur->child == nullptr)
+						return;*/
 					Json* subObj = new Json();
 					subObj->type = cur->type;
 					subObj->name = name;
 					appendNodeToJson(subObj, self);
-					addSubJson(subObj, cur->child->name, cur->child);
+					addSubJson(subObj, cur->child ? cur->child->name : "", cur->child);
 				}
 				else
 				{
@@ -1031,6 +1031,8 @@ namespace ZJSON {
 					if (cur->type == Type::Object || cur->type == Type::Array) {
 						result.append(cur->name.empty() ? "" : "\"" + cur->name + "\":")
 							.append(cur->type == Type::Object ? "{" : "[");
+						if(cur->child == nullptr)
+							result.append(cur->type == Type::Object ? "}" : "]");
 						s.push(cur);
 						cur = cur->child;
 					}
