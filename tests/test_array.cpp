@@ -200,4 +200,23 @@ TEST(TestArray, test_array_1) {
 	Json jsEmptyArr(JsonType::Array);
 	EXPECT_EQ(jsEmptyArr.toString(), "[]");
 
+	Json multiArr(JsonType::Array);
+	Json arrSub(JsonType::Array);
+	multiArr.push(arrSub);
+	Json mrs;
+	mrs.add("code", 200);
+	mrs.add("dbArr", multiArr);
+	multiArr.clear();
+	arrSub.add(1).add(2);
+	multiArr.push(arrSub);
+	arrSub.clear().add(3).add(4);
+	multiArr.push(arrSub);
+	mrs.add("arr2", multiArr);
+
+	Json multiCheck;
+	multiCheck.add("multi", mrs);
+	multiCheck.add("multi2", std::move(mrs));
+
+	EXPECT_EQ(multiCheck.toString(), "{\"multi\":{\"code\":200,\"dbArr\":[[]],\"arr2\":[[1,2],[3,4]]},\"multi2\":{\"code\":200,\"dbArr\":[[]],\"arr2\":[[1,2],[3,4]]}}");
+
 }
