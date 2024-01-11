@@ -7,6 +7,7 @@
 #include <limits.h>
 #include <array>
 #include <cstring>
+#include <cmath>
 
 namespace ZJSON {
 	using std::string;
@@ -140,7 +141,8 @@ namespace ZJSON {
 				this->brother = nullptr;
 				this->child = nullptr;
 				this->type = Type::Null;
-			} else {
+			}
+			else {
 				this->brother = nullptr;
 				this->child = nullptr;
 				this->valueNumber = value;
@@ -153,7 +155,8 @@ namespace ZJSON {
 				this->brother = nullptr;
 				this->child = nullptr;
 				this->type = Type::Null;
-			} else {
+			}
+			else {
 				this->brother = nullptr;
 				this->child = nullptr;
 				this->valueNumber = value;
@@ -440,10 +443,6 @@ namespace ZJSON {
 			return this->type == Type::String;
 		}
 
-		float toFloat() const {
-			return (float)this->toDouble();
-		}
-
 		int size() const {
 			if (this->type == Type::Array) {
 				int ct = 0;
@@ -490,14 +489,21 @@ namespace ZJSON {
 		}
 
 		double toDouble() const {
-			if (this->type == Type::Number) {
+			if (this->type == Type::Number)
 				return valueNumber;
-			}
+			else if (this->isTrue())
+				return 1;
+			else if (this->isFalse())
+				return 0;
 			else if (this->type == Type::String) {
 				return atof(this->toString().c_str());
 			}
 			else
-				return 0.0;
+				return 0;
+		}
+
+		float toFloat() const {
+			return (float)this->toDouble();
 		}
 
 		bool toBool() const {
@@ -849,8 +855,6 @@ namespace ZJSON {
 			while (cur)
 			{
 				if (cur->type == Type::Object || cur->type == Type::Array) {
-					/*if (cur->child == nullptr)
-						return;*/
 					Json* subObj = new Json();
 					subObj->type = cur->type;
 					subObj->name = name;
@@ -1031,7 +1035,7 @@ namespace ZJSON {
 					if (cur->type == Type::Object || cur->type == Type::Array) {
 						result.append(cur->name.empty() ? "" : "\"" + cur->name + "\":")
 							.append(cur->type == Type::Object ? "{" : "[");
-						if(cur->child == nullptr)
+						if (cur->child == nullptr)
 							result.append(cur->type == Type::Object ? "}" : "]");
 						s.push(cur);
 						cur = cur->child;
