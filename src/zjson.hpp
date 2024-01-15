@@ -80,6 +80,8 @@ namespace ZJSON {
 	};
 
 	class Json final {
+		friend class JsonIterator;
+		//friend class JsonRange;
 	private:
 		Json* brother;
 		Json* child;
@@ -1449,6 +1451,52 @@ namespace ZJSON {
 
 		};
 
+	};
+
+	class JsonIterator
+	{
+		Json* ptr;
+	public:
+		explicit JsonIterator(const Json& p) {
+			ptr = p.child;
+		}
+		explicit JsonIterator(Json* p) {
+			ptr = p;
+		}
+		JsonIterator operator*() const {
+			return *this; 
+		}
+		JsonIterator& operator++() {
+			ptr = ptr->brother;
+			return *this;
+		}
+		bool operator!=(JsonIterator const& other) const
+		{
+			return this->ptr != other.ptr;
+		}
+		bool operator==(const JsonIterator& other) const
+		{
+			return this->ptr == other.ptr;
+		}
+
+		JsonIterator& begin() {
+			return *this;
+		}
+
+		JsonIterator& end() {
+			Json* cur = ptr;
+			while (cur) 
+				cur = cur->brother;
+			return JsonIterator(cur);
+		}
+
+		string key() {
+			return ptr->name;
+		}
+
+		Json value() {
+			return *ptr;
+		}
 	};
 
 }
