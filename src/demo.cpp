@@ -23,17 +23,18 @@ int main(int argc, char* argv[])
 	rs.add("n3", 3);
 
 	JsonIterator iter(rs);
-	do {
+	while (iter != iter.end()) {
 		std::cout << iter.key() << " --- " << iter.value().toString() << std::endl;
-	} while (++iter != iter.end());
+		iter++;
+	}
 
 	std::cout << " ------------------------------------------- " << std::endl;
 
 	Json rsArr(JsonType::Array);
 	rsArr.add({1,2,3,4,5,6,7,8,9});
 
-	JsonIterator iter2(rsArr);
-	for (auto al : iter2)
+	//JsonIterator iter2(rsArr);
+	for (auto al : JsonIterator(rsArr))
 		std::cout << al.key() << " --- " << al.value().toString() << std::endl;
 
 	//Json data(JsonType::Array);

@@ -1470,6 +1470,9 @@ namespace ZJSON {
 			ptr = ptr->brother;
 			return *this;
 		}
+		const JsonIterator operator++(int) {
+			return ++(*this);
+		}
 		bool operator!=(JsonIterator const& other) const
 		{
 			return this->ptr != other.ptr;
@@ -1484,10 +1487,7 @@ namespace ZJSON {
 		}
 
 		JsonIterator& end() {
-			Json* cur = ptr;
-			while (cur) 
-				cur = cur->brother;
-			return JsonIterator(cur);
+			return JsonIterator(nullptr);
 		}
 
 		string key() {
