@@ -16,7 +16,7 @@ namespace ZJSON {
 	using std::stack;
 
 	static const int max_depth = 100;
-	static const std::array<string, 8> TYPENAMES {"Error", "False", "True", "Null", "Number", "String", "Object", "Array"};
+	static const std::array<string, 8> TYPENAMES{ "Error", "False", "True", "Null", "Number", "String", "Object", "Array" };
 	static const double MinValue = 0.000001;
 	static const int DecimalLength = 7;
 
@@ -970,8 +970,12 @@ namespace ZJSON {
 				}
 				else {
 					globIntVar = (long long)json->valueNumber;
-					sprintf(globBuffer, "%lld", globIntVar);
-					result.append(globBuffer);
+					if (globIntVar == 0 && json->valueNumber < 0)
+						result.append("-0");
+					else {
+						sprintf(globBuffer, "%lld", globIntVar);
+						result.append(globBuffer);
+					}
 					if (std::abs(json->valueNumber - globIntVar) >= MinValue) {
 						floatToCharStar(json->valueNumber, globDecimalVar);
 						result.append(".").append(globDecimalVar);

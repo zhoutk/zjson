@@ -149,8 +149,8 @@ TEST(TestObject, test_object_1) {
 	EXPECT_EQ(jsData["start"].toString(), "{\"x\":1,\"y\":2}");
 
 	Json eObj;
-	eObj.add("eObj1", 1.23456789e39).add("eObj2", -9.87654321E120);
-	EXPECT_EQ(eObj.toString(), "{\"eObj1\":1.234568e+39,\"eObj2\":-9.876543e+120}");
+	eObj.add("eObj1", 1.23456789e39).add("eObj2", -9.87654321E120).add("little", -0.123456);
+	EXPECT_EQ(eObj.toString(), "{\"eObj1\":1.234568e+39,\"eObj2\":-9.876543e+120,\"little\":-0.123456}");
 	EXPECT_EQ(eObj["eObj1"].toDouble(), 1.23456789e+39);
 	EXPECT_EQ(eObj["eObj2"].toDouble(), -9.87654321E120);
 
