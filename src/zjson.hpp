@@ -42,11 +42,6 @@ namespace ZJSON {
 		Array = 7
 	};
 
-	static char globBuffer[100];
-	static long long globIntVar;
-	static bool globBoolVar;
-	static char globDecimalVar[DecimalLength] = { '\0', '\0', '\0' , '\0' , '\0' , '\0', '\0' };
-
 	static void floatToCharStar(double data, char* buffer) {
 		data = std::abs(data);
 		data -= (long long)data;
@@ -965,20 +960,23 @@ namespace ZJSON {
 				if (isObj)
 					result.append("\"").append(json->name).append("\":");
 				if (json->valueNumber > LLONG_MAX || json->valueNumber < LLONG_MIN) {
-					sprintf(globBuffer, "%e", json->valueNumber);
-					result.append(globBuffer);
+					char buffer[100];
+					sprintf(buffer, "%e", json->valueNumber);
+					result.append(buffer);
 				}
 				else {
-					globIntVar = (long long)json->valueNumber;
-					if (globIntVar == 0 && json->valueNumber < 0)
+					long long intValue = (long long)json->valueNumber;
+					if (intValue == 0 && json->valueNumber < 0)
 						result.append("-0");
 					else {
-						sprintf(globBuffer, "%lld", globIntVar);
-						result.append(globBuffer);
+						char buffer[100];
+						sprintf(buffer, "%lld", intValue);
+						result.append(buffer);
 					}
-					if (std::abs(json->valueNumber - globIntVar) >= MinValue) {
-						floatToCharStar(json->valueNumber, globDecimalVar);
-						result.append(".").append(globDecimalVar);
+					if (std::abs(json->valueNumber - intValue) >= MinValue) {
+						char decimalValue[DecimalLength] = { '\0', '\0', '\0' , '\0' , '\0' , '\0', '\0' };
+						floatToCharStar(json->valueNumber, decimalValue);
+						result.append(".").append(decimalValue);
 					}
 				}
 				result.append(",");
