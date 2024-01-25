@@ -1488,7 +1488,7 @@ namespace ZJSON {
 			return *this;
 		}
 
-		JsonIterator& end() {
+		JsonIterator end() {
 			return JsonIterator(nullptr);
 		}
 
