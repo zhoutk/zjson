@@ -13,32 +13,32 @@ time_t GetCurrentTimeMsec() {
 
 int main(int argc, char* argv[])
 {
-	Json rs;
-	rs.add("code", 200);
-	rs.add("n1", 1);
-	rs.add("n2", 2);
-	rs.add("n3", 3);
+	//Json rs;
+	//rs.add("code", 200);
+	//rs.add("n1", 1);
+	//rs.add("n2", 2);
+	//rs.add("n3", 3);
 
-	JsonIterator iter(rs);
-	while (iter != iter.end()) {
-		std::cout << iter.key() << " --- " << iter.value().toString() << std::endl;
-		iter++;
-	}
+	//JsonIterator iter(rs);
+	//while (iter != iter.end()) {
+	//	std::cout << iter.key() << " --- " << iter.value().toString() << std::endl;
+	//	iter++;
+	//}
 
-	std::cout << " ------------------------------------------- " << std::endl;
+	//std::cout << " ------------------------------------------- " << std::endl;
 
-	Json rsArr(JsonType::Array);
-	rsArr.add({1,2,3,4,5,6,7,8,9});
+	//Json rsArr(JsonType::Array);
+	//rsArr.add({1,2,3,4,5,6,7,8,9});
 
-	//JsonIterator iter2(rsArr);
-	for (auto al : JsonIterator(rsArr))
-		std::cout << al.key() << " --- " << al.value().toString() << std::endl;
+	////JsonIterator iter2(rsArr);
+	//for (auto al : JsonIterator(rsArr))
+	//	std::cout << al.key() << " --- " << al.value().toString() << std::endl;
 
 	/* *******************************
 	*      for performance testing
 	*  *******************************/
 
-	/*const int LEN = 1000;
+	const int LEN = 1000;
 	time_t bg = GetCurrentTimeMsec();
 	Json rs;
 	rs.add("code", 200);
@@ -58,5 +58,5 @@ int main(int argc, char* argv[])
 	std::cout << ourStr << std::endl;
 	std::cout << " --- generate json using time count : " << t1 - bg << std::endl;
 	std::cout << " --- json toString using time count : " << t2 - t1 << std::endl;
-	std::cout << " --- show json string using time count : " << GetCurrentTimeMsec() - t2 << std::endl;*/
+	std::cout << " --- show json string using time count : " << GetCurrentTimeMsec() - t2 << std::endl;
 }

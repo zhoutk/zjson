@@ -158,4 +158,9 @@ TEST(TestObject, test_object_1) {
 	fnull.add("nan-float", std::numeric_limits<float>::quiet_NaN()).add("nan-double", std::numeric_limits<double>::quiet_NaN());
 	EXPECT_TRUE(fnull["nan-float"].isNull());
 	EXPECT_TRUE(fnull["nan-double"].isNull());
+
+	Json littleNumber;
+	littleNumber.add("n1", 2.9999997615814209).add("n2", 0.00000123);
+	EXPECT_EQ(littleNumber["n1"].toString(), "2.999999");
+	EXPECT_EQ(littleNumber["n2"].toString(), "0.000001");
 }

@@ -48,6 +48,7 @@ namespace ZJSON {
 		int ct = 0;
 		memset(buffer, '\0', DecimalLength);
 		double minValue = MinValue;
+		bool runOnce = false;
 		while (!(std::abs(data - 1) < minValue || std::abs(data) < minValue) && ct < 6) {
 			data *= 10;
 			double nextDataVal = data - (int)data;
@@ -60,6 +61,13 @@ namespace ZJSON {
 			data = nextDataVal;
 			ct++;
 			minValue *= 10;
+			runOnce = true;
+		}
+		if (!runOnce) {
+			if (std::abs(data - 1) < minValue)
+				memset(buffer, '9', DecimalLength - 1);
+			else
+				buffer[0] = '0';
 		}
 	}
 
