@@ -50,6 +50,7 @@ namespace ZJSON {
 		double minValue = MinValue;
 		bool runOnce = false;
 		while (!(std::abs(data - 1) < minValue || std::abs(data) < minValue) && ct < 6) {
+			runOnce = true;
 			data *= 10;
 			double nextDataVal = data - (int)data;
 			if ((std::abs(nextDataVal - 1) < minValue || std::abs(nextDataVal) < minValue || ct == 5) && data < 9 && nextDataVal > 0.5) {
@@ -61,7 +62,6 @@ namespace ZJSON {
 			data = nextDataVal;
 			ct++;
 			minValue *= 10;
-			runOnce = true;
 		}
 		if (!runOnce) {
 			if (std::abs(data - 1) < minValue)
