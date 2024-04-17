@@ -7,6 +7,12 @@
 using namespace ZJSON;
 
 TEST(TestParse, test_parse_1) {
+	string fullname = "C:\\temp\\ncfiles\\elevation.nc";
+	Json pp = Json().add("fullname", fullname);
+	Json path(pp.toString());
+	EXPECT_EQ(path["fullname"].toString(), "C:\\\\temp\\\\ncfiles\\\\elevation.nc");
+	std::cout << path["fullname"].toString();
+
 	string strBase = "{\"array\":[\"first\",null],\"true\":true,\"subobj\":{\"field01\":\"obj01\",\"subNumber\":99,\"null\":null},\"age\":10}"; 
 	Json base2(strBase);
 	EXPECT_EQ(base2["age"].toString(), "10");

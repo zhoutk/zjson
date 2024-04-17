@@ -962,7 +962,7 @@ namespace ZJSON {
 			if (json->type == Type::String) {
 				if (isObj)
 					result.append("\"").append(json->name).append("\":");
-				result.append("\"").append(json->valueString).append("\",");
+				result.append("\"").append(replaceAll(json->valueString, "\\", "\\\\")).append("\",");
 			}
 			else if (json->type == Type::Number) {
 				if (isObj)
@@ -1092,6 +1092,15 @@ namespace ZJSON {
 					}
 				}
 			}
+		}
+
+		string replaceAll(string str, string from, string to) const {
+			size_t start_pos = 0;
+			while ((start_pos = str.find(from, start_pos)) != string::npos) {
+				str.replace(start_pos, from.length(), to);
+				start_pos += to.length();
+			}
+			return str;
 		}
 
 		static inline string esc(char c) {
