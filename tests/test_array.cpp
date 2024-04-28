@@ -18,12 +18,13 @@ TEST(TestArray, test_array_1) {
 	subb.add("the second sub object.").add("the second field.");
 	sub.add("second obj", subb).add("a number", 666);
 
-	ajson.add("valid very little", 0.000001).add("invalid very little", 0.0000009999).add("long", l).add("longlong", ll).add("sex", true)
+	ajson.add("valid very little", 0.0000009999).add("invalid very little", 0.00000009999).add("long", l).add("longlong", ll).add("sex", true)
 		.add("name", data).add("school-cn", "第八十五中学")
 		.add("subArray", sub).add("school-en", "the 85th.")
 		.add("age", 10).add("scores", 95.98).add("classroom", f)
 		.add("index", '6').add("nullkey", nullptr);
 
+	std::cout << ajson.toString();
 	EXPECT_EQ(ajson.toString(), "[0.000001,0,123,56789,true,\"kevin\",\"第八十五中学\",[\"this is the first.\",[\"the second sub object.\",\"the second field.\"],666],\"the 85th.\",10,95.98,9.012345,54,null]");
 	EXPECT_EQ(ajson[7].toString(), "[\"this is the first.\",[\"the second sub object.\",\"the second field.\"],666]");
 

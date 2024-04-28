@@ -160,7 +160,8 @@ TEST(TestObject, test_object_1) {
 	EXPECT_TRUE(fnull["nan-double"].isNull());
 
 	Json littleNumber;
-	littleNumber.add("n1", 2.9999997615814209).add("n2", 0.00000123);
-	EXPECT_EQ(littleNumber["n1"].toString(), "2.999999");
-	EXPECT_EQ(littleNumber["n2"].toString(), "0.000001");
+	littleNumber.add("n1", 0.00070952).add("n2", 2.9999997615814209).add("n3", 0.00000123);
+	EXPECT_EQ(littleNumber["n1"].toString(), "0.000709");
+	EXPECT_EQ(littleNumber["n2"].toString(), "2.999999");
+	EXPECT_EQ(littleNumber["n3"].toString(), "0.000001");
 }

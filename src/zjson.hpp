@@ -17,7 +17,7 @@ namespace ZJSON {
 
 	static const int max_depth = 100;
 	static const std::array<string, 8> TYPENAMES{ "Error", "False", "True", "Null", "Number", "String", "Object", "Array" };
-	static const double MinValue = 0.000001;
+	static const double MinValue = 0.0000001;
 	static const int DecimalLength = 7;
 
 	static inline bool stringContain(const string& str, const string& to) {
