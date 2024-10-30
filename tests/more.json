@@ -1,0 +1,59 @@
+{
+    "ais": [
+        {
+            "destination": "100",
+            "draft": "0",
+            "id": "122221",
+            "imo": "125125",
+            "length": "100",
+            "name": "ais002",
+            "rank": "0",
+            "rot": "10",
+            "route_name": "Ais2",
+            "sign": "",
+            "type": "100",
+            "width": "100"
+        },
+        {
+            "destination": "100",
+            "draft": "0",
+            "id": "12345001",
+            "imo": "0",
+            "length": "100",
+            "name": "",
+            "rank": "0",
+            "rot": "0",
+            "route_name": "Ais",
+            "sign": "",
+            "type": "100",
+            "width": "100"
+        }
+    ],
+    "gps": {
+        "route_name": "Gps"
+    },
+    "radar": [
+        {
+            "fanwei": "T",
+            "hangxian": "T",
+            "id": "2",
+            "locker": "A",
+            "name": "2",
+            "number": "2",
+            "route_name": "Radar2",
+            "track": "T",
+            "unit": "N"
+        },
+        {
+            "fanwei": "T",
+            "hangxian": "T",
+            "id": "22",
+            "locker": "A",
+            "name": "",
+            "number": "1",
+            "route_name": "Radar",
+            "track": "T",
+            "unit": "N"
+        }
+    ]
+}

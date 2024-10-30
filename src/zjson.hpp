@@ -1,4 +1,6 @@
 #pragma once
+#pragma execution_character_set("utf-8")
+
 #include <string>
 #include <vector>
 #include <stack>
@@ -8,6 +10,7 @@
 #include <array>
 #include <cstring>
 #include <cmath>
+#include <fstream>
 
 namespace ZJSON {
 	using std::string;
@@ -234,6 +237,30 @@ namespace ZJSON {
 				al.second.name = al.first;
 				this->extendItem(&al.second);
 			}
+		}
+
+		static Json FromFile(const char* filepath) {
+			Json rs;
+			std::ifstream file(filepath); 
+
+			std::string content;
+			if (file.is_open()) {
+				std::string line;
+				while (std::getline(file, line)) { 
+					content += line;
+				}
+				file.close(); 
+			}
+			if (content.empty()) 
+				rs = Json(Type::Error);
+			else
+				rs = Json(content);
+			file.close();
+			return rs;
+		}
+
+		static Json FromFile(const std::string& filepath) {
+			return Json::FromFile(filepath.c_str());
 		}
 
 		~Json() {
@@ -704,11 +731,11 @@ namespace ZJSON {
 			{
 				if (cur->name == key)
 				{
-					if (cur->type == Type::Array || cur->type == Type::Object) {
-						pre->brother = cur->brother;
-					}
-					else if (pre->type == Type::Array || pre->type == Type::Object)
+					if (pre->type == Type::Array || pre->type == Type::Object) {
 						pre->child = cur->brother;
+					}
+					else if (cur->type == Type::Array || cur->type == Type::Object)
+						pre->brother = cur->brother;
 					else
 						pre->brother = cur->brother;
 					found = true;
@@ -961,7 +988,7 @@ namespace ZJSON {
 			if (json->type == Type::String) {
 				if (isObj)
 					result.append("\"").append(json->name).append("\":");
-				result.append("\"").append(json->valueString).append("\",");
+				result.append("\"").append(replaceAll(json->valueString, "\\", "\\\\")).append("\",");
 			}
 			else if (json->type == Type::Number) {
 				if (isObj)
@@ -1068,14 +1095,14 @@ namespace ZJSON {
 			}
 		}
 
-		//string replaceAll(string str, string from, string to) const {
-		//	size_t start_pos = 0;
-		//	while ((start_pos = str.find(from, start_pos)) != string::npos) {
-		//		str.replace(start_pos, from.length(), to);
-		//		start_pos += to.length();
-		//	}
-		//	return str;
-		//}
+		string replaceAll(string str, string from, string to) const {
+			size_t start_pos = 0;
+			while ((start_pos = str.find(from, start_pos)) != string::npos) {
+				str.replace(start_pos, from.length(), to);
+				start_pos += to.length();
+			}
+			return str;
+		}
 
 		static inline string esc(char c) {
 			char buf[12];

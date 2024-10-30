@@ -62,4 +62,8 @@ if (CMAKE_ZJSON_ENABLE_TEST)
     target_link_libraries(test_parse gtest gtest_main)
     add_test(NAME test_parse COMMAND test_parse)
 
+    add_executable(test_more tests/test_more.cpp)
+    target_link_libraries(test_more gtest gtest_main)
+    add_test(NAME test_more COMMAND test_more)
+
 endif()
