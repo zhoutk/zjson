@@ -84,7 +84,6 @@ namespace ZJSON {
 
 	class Json final {
 		friend class JsonIterator;
-		//friend class JsonRange;
 	private:
 		Json* brother;
 		Json* child;
@@ -962,7 +961,7 @@ namespace ZJSON {
 			if (json->type == Type::String) {
 				if (isObj)
 					result.append("\"").append(json->name).append("\":");
-				result.append("\"").append(replaceAll(json->valueString, "\\", "\\\\")).append("\",");
+				result.append("\"").append(json->valueString).append("\",");
 			}
 			else if (json->type == Type::Number) {
 				if (isObj)
@@ -1005,31 +1004,6 @@ namespace ZJSON {
 				result.append("null,");
 			}
 		}
-
-		//void toString(const Json* json, string& result, int deep = 0, bool isObj = true) const {
-		//	if (json->type == Type::Object || json->type == Type::Array) {
-		//		if (deep > 0)
-		//			result.append(isObj ? "\"" + json->name + "\":" : "")
-		//			.append(json->type == Type::Object ? "{" : "[");
-		//		else
-		//			result.append(json->type == Type::Object ? "{" : "[");
-		//		if (json->child)
-		//			toString(json->child, result, deep + 1, json->type == Type::Object);
-		//		if (stringEndWith(result, ","))
-		//			result = result.substr(0, result.length() - 1);
-
-		//		if (deep > 0)
-		//			result += (json->type == Type::Object ? "}," : "],");
-		//		else
-		//			result += (json->type == Type::Object ? "}" : "]");
-		//	}
-		//	else
-		//		valueJsonToString(json, result, isObj);
-
-		//	if (json->brother) {
-		//		toString(json->brother, result, deep, isObj);
-		//	}
-		//}
 
 		void toString(const Json* json, string& result) const {
 			stack<Json*> s;
@@ -1094,14 +1068,14 @@ namespace ZJSON {
 			}
 		}
 
-		string replaceAll(string str, string from, string to) const {
-			size_t start_pos = 0;
-			while ((start_pos = str.find(from, start_pos)) != string::npos) {
-				str.replace(start_pos, from.length(), to);
-				start_pos += to.length();
-			}
-			return str;
-		}
+		//string replaceAll(string str, string from, string to) const {
+		//	size_t start_pos = 0;
+		//	while ((start_pos = str.find(from, start_pos)) != string::npos) {
+		//		str.replace(start_pos, from.length(), to);
+		//		start_pos += to.length();
+		//	}
+		//	return str;
+		//}
 
 		static inline string esc(char c) {
 			char buf[12];

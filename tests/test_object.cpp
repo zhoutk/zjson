@@ -7,6 +7,9 @@
 using namespace ZJSON;
 
 TEST(TestObject, test_object_1) {
+	Json dot;
+	dot.add("l", 0.00059908820549026132);
+	EXPECT_EQ(dot["l"].toString(), "0.000599");
 	Json ajson;
 	std::string data = "kevin";
 	float f = 9.012345;
