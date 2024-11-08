@@ -1049,7 +1049,7 @@ namespace ZJSON {
 						result.append(cur->name.empty() ? "" : "\"" + cur->name + "\":")
 							.append(cur->type == Type::Object ? "{" : "[");
 						if (cur->child == nullptr)
-							result.append(cur->type == Type::Object ? "}" : "]");
+							result.append(cur->type == Type::Object ? "}," : "],");
 						s.push(cur);
 						cur = cur->child;
 					}
