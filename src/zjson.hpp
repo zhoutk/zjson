@@ -557,9 +557,7 @@ namespace ZJSON {
 					cur = cur->brother;
 				};
 			}
-			else {
-				return rs;
-			}
+			return rs;
 		}
 
 		Json& extend(Json value) {
