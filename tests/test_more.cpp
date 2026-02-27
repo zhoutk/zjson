@@ -5,7 +5,23 @@
 using namespace ZJSON;
 
 TEST(TestMore, test_more_1) {
-	Json config = Json::FromFile("more.json");
+	Json config;
+	bool loaded = false;
+	const char* candidates[] = {
+		"tests/more.json",
+		"../tests/more.json",
+		"../../tests/more.json",
+		"../../../tests/more.json",
+		"../../../../tests/more.json"
+	};
+	for (const char* p : candidates) {
+		config = Json::FromFile(p);
+		if (!config.isError()) {
+			loaded = true;
+			break;
+		}
+	}
+	EXPECT_TRUE(loaded);
 	config.remove("gps");
 	//std::cout << config.toString();
 	EXPECT_EQ(config.toString(), "{\"radar\":[{\"route_name\":\"Radar\"},{\"route_name\":\"R2\"}]}");

@@ -11,6 +11,8 @@
 #include <cstring>
 #include <cmath>
 #include <fstream>
+#include <cstdio>
+#include <iterator>
 
 namespace ZJSON {
 	using std::string;
@@ -23,20 +25,8 @@ namespace ZJSON {
 	static const double MinValue = 0.0000001;
 	static const int DecimalLength = 7;
 
-	static inline bool stringContain(const string& str, const string& to) {
-		return str.find(to) != string::npos;
-	}
-
-	static inline bool stringEqualTo(const string& str, const string& to) {
-		return str.compare(to) == 0;
-	}
-
 	static inline bool stringEndWith(const string& str, const string& tail) {
 		return str.compare(str.size() - tail.size(), tail.size(), tail) == 0;
-	}
-
-	static inline bool stringStartWith(const string& str, const string& head) {
-		return str.compare(0, head.size(), head) == 0;
 	}
 
 	enum class JsonType
@@ -129,6 +119,25 @@ namespace ZJSON {
 			this->valueNumber = 0;
 		}
 
+		static Json* cloneChain(const Json* source) {
+			if (!source)
+				return nullptr;
+			Json* node = new Json(source->type);
+			node->name = source->name;
+			node->valueString = source->valueString;
+			node->valueNumber = source->valueNumber;
+			node->child = cloneChain(source->child);
+			node->brother = cloneChain(source->brother);
+			return node;
+		}
+
+		void releaseChildren() {
+			if (this->child) {
+				deleteJson(this->child);
+				this->child = nullptr;
+			}
+		}
+
 	public:
 		Json(JsonType type = JsonType::Object) {
 			this->brother = nullptr;
@@ -188,6 +197,10 @@ namespace ZJSON {
 		}
 
 		Json(const char* jsonStr) : Json(Type::Error) {
+			if (jsonStr == nullptr) {
+				this->type = Type::Null;
+				return;
+			}
 			new (this)Json(string(jsonStr));
 		}
 
@@ -207,23 +220,18 @@ namespace ZJSON {
 			this->brother = nullptr;
 			this->child = nullptr;
 			this->type = origin.type;
-			if (origin.type == Type::Array || origin.type == Type::Object) {
-				this->name = origin.name;
-				addValueJson(origin.child ? origin.child->name : "", *origin.child);
-			}
-			else {
-				this->name = origin.name;
-				this->valueString = origin.valueString;
-				this->valueNumber = origin.valueNumber;
-			}
+			this->name = origin.name;
+			this->valueString = origin.valueString;
+			this->valueNumber = origin.valueNumber;
+			this->child = cloneChain(origin.child);
 		}
 
-		Json(Json&& rhs) {
+		Json(Json&& rhs) noexcept {
 			this->type = rhs.type;
 			this->child = rhs.child;
 			this->brother = rhs.brother;
-			this->name = rhs.name;
-			this->valueString = rhs.valueString;
+			this->name = std::move(rhs.name);
+			this->valueString = std::move(rhs.valueString);
 			this->valueNumber = rhs.valueNumber;
 			rhs.child = nullptr;
 			rhs.brother = nullptr;
@@ -240,23 +248,15 @@ namespace ZJSON {
 		}
 
 		static Json FromFile(const char* filepath) {
-			Json rs;
-			std::ifstream file(filepath); 
-
-			std::string content;
-			if (file.is_open()) {
-				std::string line;
-				while (std::getline(file, line)) { 
-					content += line;
-				}
-				file.close(); 
-			}
-			if (content.empty()) 
-				rs = Json(Type::Error);
-			else
-				rs = Json(content);
-			file.close();
-			return rs;
+			if (!filepath)
+				return Json(Type::Error);
+			std::ifstream file(filepath, std::ios::binary);
+			if (!file.is_open())
+				return Json(Type::Error);
+			std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+			if (content.empty())
+				return Json(Type::Error);
+			return Json(content);
 		}
 
 		static Json FromFile(const std::string& filepath) {
@@ -264,19 +264,34 @@ namespace ZJSON {
 		}
 
 		~Json() {
-			if (child) {
-				deleteJson(child);
-				child = nullptr;
-			}
+			releaseChildren();
 		}
 
 		Json& operator = (const Json& origin) {
-			new (this)Json(origin);
+			if (this == &origin)
+				return(*this);
+			releaseChildren();
+			this->brother = nullptr;
+			this->type = origin.type;
+			this->name = origin.name;
+			this->valueString = origin.valueString;
+			this->valueNumber = origin.valueNumber;
+			this->child = cloneChain(origin.child);
 			return(*this);
 		}
 
 		Json& operator = (Json&& rhs) {
-			new (this)Json(std::move(rhs));
+			if (this == &rhs)
+				return(*this);
+			releaseChildren();
+			this->type = rhs.type;
+			this->child = rhs.child;
+			this->brother = rhs.brother;
+			this->name = std::move(rhs.name);
+			this->valueString = std::move(rhs.valueString);
+			this->valueNumber = rhs.valueNumber;
+			rhs.child = nullptr;
+			rhs.brother = nullptr;
 			return(*this);
 		}
 
@@ -498,6 +513,9 @@ namespace ZJSON {
 			if (this->type == Type::Error) {
 				return "";
 			}
+			if (this->type == Type::String) {
+				return this->valueString;
+			}
 			else {
 				string result;
 				if (this->type == Type::Object || this->type == Type::Array) {
@@ -508,10 +526,7 @@ namespace ZJSON {
 				}
 				else
 					this->valueJsonToString(this, result, false);
-				if (this->type == Type::String)
-					return result.substr(1, result.length() - 3);
-				else
-					return stringEndWith(result, ",") ? result.erase(result.length() - 1) : result;
+				return stringEndWith(result, ",") ? result.erase(result.length() - 1) : result;
 			}
 		}
 
@@ -867,44 +882,6 @@ namespace ZJSON {
 			}
 		}
 
-		bool addValueJson(string name, Json& obj) {
-			if (this->type == Type::Object || this->type == Type::Array) {
-				addSubJson(this, this->type == Type::Object ? name : "", &obj);
-				return true;
-			}
-			else {
-				return false;
-			}
-		}
-
-		void addSubJson(Json* self, string name, Json* obj) {	//only use by addValueJson, for recursion
-			if (self == nullptr || obj == nullptr)
-				return;
-			Json* cur = obj;
-			while (cur)
-			{
-				if (cur->type == Type::Object || cur->type == Type::Array) {
-					Json* subObj = new Json();
-					subObj->type = cur->type;
-					subObj->name = name;
-					appendNodeToJson(subObj, self);
-					addSubJson(subObj, cur->child ? cur->child->name : "", cur->child);
-				}
-				else
-				{
-					Json* subContent = new Json();
-					subContent->type = cur->type;
-					subContent->name = cur->name;
-					subContent->valueNumber = cur->valueNumber;
-					subContent->valueString = cur->valueString;
-					appendNodeToJson(subContent, self);
-				}
-				cur = cur->brother;
-				if (cur)
-					name = cur->name;
-			}
-		}
-
 		void deleteJson(Json* obj) {		//all json type is value type
 			Json* cur = obj;
 			Json* follow = obj;
@@ -983,10 +960,35 @@ namespace ZJSON {
 		}
 
 		void valueJsonToString(const Json* json, string& result, bool isObj = true) const {
+			auto appendEscapedString = [&](const string& input) {
+				for (unsigned char ch : input) {
+					switch (ch) {
+					case '"': result.append("\\\""); break;
+					case '\\': result.append("\\\\"); break;
+					case '\b': result.append("\\b"); break;
+					case '\f': result.append("\\f"); break;
+					case '\n': result.append("\\n"); break;
+					case '\r': result.append("\\r"); break;
+					case '\t': result.append("\\t"); break;
+					default:
+						if (ch < 0x20) {
+							char buf[7];
+							snprintf(buf, sizeof(buf), "\\u%04x", ch);
+							result.append(buf);
+						}
+						else {
+							result.push_back(static_cast<char>(ch));
+						}
+					}
+				}
+			};
+
 			if (json->type == Type::String) {
 				if (isObj)
 					result.append("\"").append(json->name).append("\":");
-				result.append("\"").append(replaceAll(json->valueString, "\\", "\\\\")).append("\",");
+				result.append("\"");
+				appendEscapedString(json->valueString);
+				result.append("\",");
 			}
 			else if (json->type == Type::Number) {
 				if (isObj)
@@ -1093,15 +1095,6 @@ namespace ZJSON {
 			}
 		}
 
-		string replaceAll(string str, string from, string to) const {
-			size_t start_pos = 0;
-			while ((start_pos = str.find(from, start_pos)) != string::npos) {
-				str.replace(start_pos, from.length(), to);
-				start_pos += to.length();
-			}
-			return str;
-		}
-
 		static inline string esc(char c) {
 			char buf[12];
 			if (static_cast<uint8_t>(c) >= 0x20 && static_cast<uint8_t>(c) <= 0x7f) {
@@ -1135,13 +1128,13 @@ namespace ZJSON {
 			}
 
 			void consume_whitespace() {
-				while (str[i] == ' ' || str[i] == '\r' || str[i] == '\n' || str[i] == '\t')
+				while (i < str.size() && (str[i] == ' ' || str[i] == '\r' || str[i] == '\n' || str[i] == '\t'))
 					i++;
 			}
 
 			bool consume_comment() {
 				bool comment_found = false;
-				if (str[i] == '/') {
+				if (i < str.size() && str[i] == '/') {
 					i++;
 					if (i == str.size())
 						return fail("unexpected end of input after start of comment", false);
@@ -1218,21 +1211,29 @@ namespace ZJSON {
 				Json rs(Type::Number);
 				size_t start_pos = i;
 
-				if (str[i] == '-')
+				if (i < str.size() && str[i] == '-')
 					i++;
+
+				if (i == str.size())
+					return fail("unexpected end of input in number");
 
 				if (str[i] == '0') {
 					i++;
-					if (in_range(str[i], '0', '9'))
+					if (i < str.size() && in_range(str[i], '0', '9'))
 						return fail("leading 0s not permitted in numbers");
 				}
 				else if (in_range(str[i], '1', '9')) {
 					i++;
-					while (in_range(str[i], '0', '9'))
+					while (i < str.size() && in_range(str[i], '0', '9'))
 						i++;
 				}
 				else {
 					return fail("invalid " + esc(str[i]) + " in number");
+				}
+
+				if (i == str.size()) {
+					rs.valueNumber = std::strtod(str.c_str() + start_pos, nullptr);
+					return rs;
 				}
 
 				if (str[i] != '.' && str[i] != 'e' && str[i] != 'E'
@@ -1243,23 +1244,23 @@ namespace ZJSON {
 
 				if (str[i] == '.') {
 					i++;
-					if (!in_range(str[i], '0', '9'))
+					if (i == str.size() || !in_range(str[i], '0', '9'))
 						return fail("at least one digit required in fractional part");
 
-					while (in_range(str[i], '0', '9'))
+					while (i < str.size() && in_range(str[i], '0', '9'))
 						i++;
 				}
 
-				if (str[i] == 'e' || str[i] == 'E') {
+				if (i < str.size() && (str[i] == 'e' || str[i] == 'E')) {
 					i++;
 
-					if (str[i] == '+' || str[i] == '-')
+					if (i < str.size() && (str[i] == '+' || str[i] == '-'))
 						i++;
 
-					if (!in_range(str[i], '0', '9'))
+					if (i == str.size() || !in_range(str[i], '0', '9'))
 						return fail("at least one digit required in exponent");
 
-					while (in_range(str[i], '0', '9'))
+					while (i < str.size() && in_range(str[i], '0', '9'))
 						i++;
 				}
 
@@ -1399,8 +1400,6 @@ namespace ZJSON {
 
 				if (ch == '{') {
 					Json data(Type::Object);
-					data.child = new Json(Type::Error);
-					Json* cur = data.child;
 					ch = get_next_token();
 					if (ch == '}')
 						return data;
@@ -1417,11 +1416,13 @@ namespace ZJSON {
 						if (ch != ':')
 							return fail("expected ':' in object, got " + esc(ch));
 
-						*cur = parse_json(depth + 1);
-						cur->name = key;
+						Json value = parse_json(depth + 1);
+						value.name = key;
 
 						if (failed)
 							return Json(Type::Error);
+
+						data.appendNodeToJson(new Json(std::move(value)));
 
 						ch = get_next_token();
 						if (ch == '}')
@@ -1429,8 +1430,6 @@ namespace ZJSON {
 						if (ch != ',')
 							return fail("expected ',' in object, got " + esc(ch));
 
-						cur->brother = new Json(Type::Error);
-						cur = cur->brother;
 						ch = get_next_token();
 					}
 					return data;
@@ -1438,18 +1437,18 @@ namespace ZJSON {
 
 				if (ch == '[') {
 					Json data(Type::Array);
-					data.child = new Json(Type::Error);
-					Json* cur = data.child;
 					ch = get_next_token();
 					if (ch == ']')
 						return data;
 
 					while (1) {
 						i--;
-						*cur = parse_json(depth + 1);
+						Json value = parse_json(depth + 1);
 
 						if (failed)
 							return Json(Type::Error);
+
+						data.appendNodeToJson(new Json(std::move(value)));
 
 						ch = get_next_token();
 						if (ch == ']')
@@ -1457,8 +1456,6 @@ namespace ZJSON {
 						if (ch != ',')
 							return fail("expected ',' in object, got " + esc(ch));
 
-						cur->brother = new Json(Type::Error);
-						cur = cur->brother;
 						ch = get_next_token();
 					}
 					return data;
