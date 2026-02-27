@@ -72,3 +72,14 @@ if (CMAKE_ZJSON_ENABLE_TEST)
     add_test(NAME test_conformance COMMAND test_conformance)
 
 endif()
+
+##--------------------- Benchmark -------------------------------------------##
+option(CMAKE_ZJSON_ENABLE_BENCH "Whether to build benchmark" ON)
+if (CMAKE_ZJSON_ENABLE_BENCH)
+    add_executable(bench_zjson bench/bench_main.cpp)
+    if(MSVC)
+        target_compile_options(bench_zjson PRIVATE $<$<CONFIG:Release>:/O2>)
+    else()
+        target_compile_options(bench_zjson PRIVATE $<$<CONFIG:Release>:-O2>)
+    endif()
+endif()

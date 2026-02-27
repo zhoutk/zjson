@@ -13,6 +13,7 @@
 #include <fstream>
 #include <cstdio>
 #include <iterator>
+#include <unordered_map>
 
 namespace ZJSON {
 	using std::string;
@@ -26,6 +27,7 @@ namespace ZJSON {
 	static const int DecimalLength = 7;
 
 	static inline bool stringEndWith(const string& str, const string& tail) {
+		if (str.size() < tail.size()) return false;
 		return str.compare(str.size() - tail.size(), tail.size(), tail) == 0;
 	}
 
@@ -64,6 +66,35 @@ namespace ZJSON {
 		}
 	}
 
+	static inline void appendEscapedString(const string& input, string& out) {
+		for (unsigned char ch : input) {
+			switch (ch) {
+			case '"': out.append("\\\""); break;
+			case '\\': out.append("\\\\"); break;
+			case '\b': out.append("\\b"); break;
+			case '\f': out.append("\\f"); break;
+			case '\n': out.append("\\n"); break;
+			case '\r': out.append("\\r"); break;
+			case '\t': out.append("\\t"); break;
+			default:
+				if (ch < 0x20) {
+					char buf[7];
+					snprintf(buf, sizeof(buf), "\\u%04x", ch);
+					out.append(buf);
+				}
+				else {
+					out.push_back(static_cast<char>(ch));
+				}
+			}
+		}
+	}
+
+	static inline void appendQuotedKey(const string& key, string& out) {
+		out.push_back('"');
+		appendEscapedString(key, out);
+		out.append("\":");
+	}
+
 	enum class Type {
 		Error,
 		False,
@@ -80,6 +111,8 @@ namespace ZJSON {
 	private:
 		Json* brother;
 		Json* child;
+		Json* lastChild;   // tail of child list — O(1) append
+		mutable std::unordered_map<string, Json*>* keymap;  // lazy O(1) key lookup (Object only)
 		Type type;
 		string valueString;
 		double valueNumber;
@@ -115,20 +148,41 @@ namespace ZJSON {
 		Json(Type type) {
 			this->brother = nullptr;
 			this->child = nullptr;
+			this->lastChild = nullptr;
+			this->keymap = nullptr;
 			this->type = type;
 			this->valueNumber = 0;
 		}
 
-		static Json* cloneChain(const Json* source) {
-			if (!source)
+		// Clones source's sibling chain; *outTail receives the last node (may be nullptr if source is nullptr)
+		static Json* cloneChain(const Json* source, Json** outTail = nullptr) {
+			if (!source) {
+				if (outTail) *outTail = nullptr;
 				return nullptr;
-			Json* node = new Json(source->type);
-			node->name = source->name;
-			node->valueString = source->valueString;
-			node->valueNumber = source->valueNumber;
-			node->child = cloneChain(source->child);
-			node->brother = cloneChain(source->brother);
-			return node;
+			}
+			Json* head = new Json(source->type);
+			head->name = source->name;
+			head->valueString = source->valueString;
+			head->valueNumber = source->valueNumber;
+			Json* childTail = nullptr;
+			head->child = cloneChain(source->child, &childTail);
+			head->lastChild = childTail;
+			Json* tail = head;
+			const Json* cur = source->brother;
+			while (cur) {
+				Json* node = new Json(cur->type);
+				node->name = cur->name;
+				node->valueString = cur->valueString;
+				node->valueNumber = cur->valueNumber;
+				Json* nodeChildTail = nullptr;
+				node->child = cloneChain(cur->child, &nodeChildTail);
+				node->lastChild = nodeChildTail;
+				tail->brother = node;
+				tail = node;
+				cur = cur->brother;
+			}
+			if (outTail) *outTail = tail;
+			return head;
 		}
 
 		void releaseChildren() {
@@ -136,23 +190,31 @@ namespace ZJSON {
 				deleteJson(this->child);
 				this->child = nullptr;
 			}
+			this->lastChild = nullptr;
+			if (this->keymap) { delete this->keymap; this->keymap = nullptr; }
 		}
 
 	public:
 		Json(JsonType type = JsonType::Object) {
 			this->brother = nullptr;
 			this->child = nullptr;
+			this->lastChild = nullptr;
+			this->keymap = nullptr;
 			this->type = (Type)type;
 		}
 
 		template<typename T> Json(const T& value) {
 			this->brother = nullptr;
 			this->child = nullptr;
+			this->lastChild = nullptr;
+			this->keymap = nullptr;
 			this->valueNumber = value;
 			this->type = Type::Number;
 		}
 
 		Json(const float& value) {
+			this->lastChild = nullptr;
+			this->keymap = nullptr;
 			if (std::isnan(value)) {
 				this->brother = nullptr;
 				this->child = nullptr;
@@ -167,6 +229,8 @@ namespace ZJSON {
 		}
 
 		Json(const double& value) {
+			this->lastChild = nullptr;
+			this->keymap = nullptr;
 			if (std::isnan(value)) {
 				this->brother = nullptr;
 				this->child = nullptr;
@@ -201,45 +265,58 @@ namespace ZJSON {
 				this->type = Type::Null;
 				return;
 			}
-			new (this)Json(string(jsonStr));
+			*this = Json(string(jsonStr));
 		}
 
 		Json(const bool& value) {
 			this->brother = nullptr;
 			this->child = nullptr;
+			this->lastChild = nullptr;
+			this->keymap = nullptr;
 			this->type = value ? Type::True : Type::False;
 		}
 
 		Json(const std::nullptr_t&) {
 			this->brother = nullptr;
 			this->child = nullptr;
+			this->lastChild = nullptr;
+			this->keymap = nullptr;
 			this->type = Type::Null;
 		}
 
 		Json(const Json& origin) {
 			this->brother = nullptr;
-			this->child = nullptr;
+			this->lastChild = nullptr;
+			this->keymap = nullptr;
 			this->type = origin.type;
 			this->name = origin.name;
 			this->valueString = origin.valueString;
 			this->valueNumber = origin.valueNumber;
-			this->child = cloneChain(origin.child);
+			Json* childTail = nullptr;
+			this->child = cloneChain(origin.child, &childTail);
+			this->lastChild = childTail;
 		}
 
 		Json(Json&& rhs) noexcept {
 			this->type = rhs.type;
 			this->child = rhs.child;
 			this->brother = rhs.brother;
+			this->lastChild = rhs.lastChild;
+			this->keymap = rhs.keymap;
 			this->name = std::move(rhs.name);
 			this->valueString = std::move(rhs.valueString);
 			this->valueNumber = rhs.valueNumber;
 			rhs.child = nullptr;
 			rhs.brother = nullptr;
+			rhs.lastChild = nullptr;
+			rhs.keymap = nullptr;
 		}
 
 		explicit Json(std::initializer_list<std::pair<const std::string, Json>> values) {
 			this->child = nullptr;
 			this->brother = nullptr;
+			this->lastChild = nullptr;
+			this->keymap = nullptr;
 			this->type = Type::Object;
 			for (auto al : values) {
 				al.second.name = al.first;
@@ -263,6 +340,10 @@ namespace ZJSON {
 			return Json::FromFile(filepath.c_str());
 		}
 
+		static Json ParseJson(const std::string& input, std::string& errMsg) {
+			return parse(input, errMsg);
+		}
+
 		~Json() {
 			releaseChildren();
 		}
@@ -276,29 +357,35 @@ namespace ZJSON {
 			this->name = origin.name;
 			this->valueString = origin.valueString;
 			this->valueNumber = origin.valueNumber;
-			this->child = cloneChain(origin.child);
+			Json* childTail = nullptr;
+			this->child = cloneChain(origin.child, &childTail);
+			this->lastChild = childTail;
 			return(*this);
 		}
 
-		Json& operator = (Json&& rhs) {
+		Json& operator = (Json&& rhs) noexcept {
 			if (this == &rhs)
 				return(*this);
 			releaseChildren();
 			this->type = rhs.type;
 			this->child = rhs.child;
 			this->brother = rhs.brother;
+			this->lastChild = rhs.lastChild;
+			this->keymap = rhs.keymap;
 			this->name = std::move(rhs.name);
 			this->valueString = std::move(rhs.valueString);
 			this->valueNumber = rhs.valueNumber;
 			rhs.child = nullptr;
 			rhs.brother = nullptr;
+			rhs.lastChild = nullptr;
+			rhs.keymap = nullptr;
 			return(*this);
 		}
 
 		Json operator[](const int& index) const {
 			Json rs(Type::Error);
 			if (this->type == Type::Array) {
-				if (index < 0) {
+				if (index < 0 || this->child == nullptr) {
 					return rs;
 				}
 				else {
@@ -310,24 +397,20 @@ namespace ZJSON {
 		}
 
 		Json operator[](const string& key) const {
-			Json rs(Type::Error);
-			if (this->type == Type::Object) {
-				if (key.empty() || this->child == nullptr) {
-					return rs;
-				}
-				else {
-					if (this->child->name == key)
-						return *(this->child);
-					else
-						return this->child->find(key);
-				}
-			}
-			else
-				return rs;
+			if (this->type != Type::Object || key.empty() || !this->child)
+				return Json(Type::Error);
+			// Fast path: keymap lookup for O(1) direct-child access
+			if (!this->keymap) buildKeymap();
+			auto it = this->keymap->find(key);
+			if (it != this->keymap->end()) return *(it->second);
+			// Slow path: deep search for nested keys (uncommon)
+			return this->child->find(key);
 		}
 
 		bool contains(const string& key) const {
-			return !((*this)[key].type == Type::Error);
+			if (this->type != Type::Object || key.empty() || !this->child) return false;
+			if (!this->keymap) buildKeymap();
+			return this->keymap->count(key) > 0;
 		}
 
 		string getValueType() const {
@@ -431,7 +514,7 @@ namespace ZJSON {
 		}
 
 		template<typename T> Json& add(string name, T value) {
-			if (!name.empty() && this->type == Type::Object || this->type == Type::Array) {
+			if ((!name.empty() && this->type == Type::Object) || this->type == Type::Array) {
 				Json* node = new Json(value);
 				node->name = this->type == Type::Object ? name : "";
 				appendNodeToJson(node);
@@ -440,7 +523,7 @@ namespace ZJSON {
 		}
 
 		Json& add(string name, const Json& value) {
-			if (!name.empty() && this->type == Type::Object || this->type == Type::Array) {
+			if ((!name.empty() && this->type == Type::Object) || this->type == Type::Array) {
 				Json* node = new Json(value);
 				node->name = this->type == Type::Object ? name : "";
 				appendNodeToJson(node);
@@ -449,7 +532,7 @@ namespace ZJSON {
 		}
 
 		Json& add(string name, Json&& value) {
-			if (!name.empty() && this->type == Type::Object || this->type == Type::Array) {
+			if ((!name.empty() && this->type == Type::Object) || this->type == Type::Array) {
 				Json* node = new Json(std::move(value));
 				node->name = this->type == Type::Object ? name : "";
 				appendNodeToJson(node);
@@ -612,6 +695,7 @@ namespace ZJSON {
 				Json* theChild = this->child;
 				this->child = new Json(value);
 				this->child->brother = theChild;
+				if (!theChild) this->lastChild = this->child; // was empty
 				theChild = nullptr;
 			}
 			return (*this);
@@ -622,6 +706,7 @@ namespace ZJSON {
 				Json* theChild = this->child;
 				this->child = new Json(std::move(value));
 				this->child->brother = theChild;
+				if (!theChild) this->lastChild = this->child; // was empty
 				theChild = nullptr;
 			}
 			return (*this);
@@ -683,6 +768,7 @@ namespace ZJSON {
 					if (index < ct) {
 						pre->brother = new Json(value);
 						pre->brother->brother = cur;
+						if (!cur) this->lastChild = pre->brother; // inserted at tail
 					}
 					return (*this);
 				}
@@ -712,6 +798,7 @@ namespace ZJSON {
 					if (index < ct) {
 						pre->brother = new Json(std::move(value));
 						pre->brother->brother = cur;
+						if (!cur) this->lastChild = pre->brother; // inserted at tail
 					}
 					return (*this);
 				}
@@ -725,6 +812,8 @@ namespace ZJSON {
 				if (this->child)
 					deleteJson(this->child);
 				this->child = nullptr;
+				this->lastChild = nullptr;
+				if (this->keymap) { delete this->keymap; this->keymap = nullptr; }
 			}
 			return (*this);
 		}
@@ -733,8 +822,12 @@ namespace ZJSON {
 		{
 			if (key.empty() || (self == nullptr && this->type != Type::Object))
 				return (*this);
-			if (self == nullptr)
+			if (self == nullptr) {
+				// Top-level call: invalidate keymap and lastChild since chain will change
+				if (this->keymap) { delete this->keymap; this->keymap = nullptr; }
+				this->lastChild = nullptr;
 				self = this;
+			}
 			Json* cur = self;
 			Json* pre = self;
 			if (prev)
@@ -797,6 +890,7 @@ namespace ZJSON {
 						cur = cur->brother;
 					}
 					pre->brother = cur->brother;
+					if (!cur->brother) this->lastChild = (pre == (Json*)this) ? nullptr : pre;
 					cur->brother = nullptr;
 					delete cur;
 				}
@@ -808,6 +902,7 @@ namespace ZJSON {
 			if (this->type == Type::Array && this->size() > 0) {
 				auto cur = this->child;
 				this->child = cur->brother;
+				if (!this->child) this->lastChild = nullptr; // was the only element
 				cur->brother = nullptr;
 				delete cur;
 			}
@@ -868,21 +963,26 @@ namespace ZJSON {
 		{
 			if (self == nullptr)
 				self = this;
-			if (self->child) {
+			// O(1) append using lastChild tail pointer
+			if (self->lastChild) {
+				self->lastChild->brother = node;
+				self->lastChild = node;
+			} else if (self->child) {
+				// lastChild lost (shouldn't normally happen); fall back to traversal
 				Json* prev = self->child;
-				Json* cur = self->child->brother;
-				while (cur) {
-					prev = cur;
-					cur = cur->brother;
-				}
+				while (prev->brother) prev = prev->brother;
 				prev->brother = node;
-			}
-			else {
+				self->lastChild = node;
+			} else {
 				self->child = node;
+				self->lastChild = node;
 			}
+			// Invalidate keymap so it will be lazily rebuilt on next operator[]
+			if (self->keymap) { delete self->keymap; self->keymap = nullptr; }
 		}
 
 		void deleteJson(Json* obj) {		//all json type is value type
+			if (!obj) return;
 			Json* cur = obj;
 			Json* follow = obj;
 			do {
@@ -894,9 +994,23 @@ namespace ZJSON {
 						cur->child = nullptr;
 					}
 				}
+				if (cur->keymap) { delete cur->keymap; cur->keymap = nullptr; }
 				delete cur;
 				cur = nullptr;
 			} while (follow);
+		}
+
+		// Lazily build a keymap of all immediate children (Object keys only)
+		void buildKeymap() const {
+			if (keymap) { delete keymap; keymap = nullptr; }
+			keymap = new std::unordered_map<string, Json*>();
+			keymap->reserve(16);
+			Json* cur = child;
+			while (cur) {
+				if (!cur->name.empty())
+					keymap->emplace(cur->name, cur);
+				cur = cur->brother;
+			}
 		}
 
 		Json find(int index) {
@@ -960,42 +1074,19 @@ namespace ZJSON {
 		}
 
 		void valueJsonToString(const Json* json, string& result, bool isObj = true) const {
-			auto appendEscapedString = [&](const string& input) {
-				for (unsigned char ch : input) {
-					switch (ch) {
-					case '"': result.append("\\\""); break;
-					case '\\': result.append("\\\\"); break;
-					case '\b': result.append("\\b"); break;
-					case '\f': result.append("\\f"); break;
-					case '\n': result.append("\\n"); break;
-					case '\r': result.append("\\r"); break;
-					case '\t': result.append("\\t"); break;
-					default:
-						if (ch < 0x20) {
-							char buf[7];
-							snprintf(buf, sizeof(buf), "\\u%04x", ch);
-							result.append(buf);
-						}
-						else {
-							result.push_back(static_cast<char>(ch));
-						}
-					}
-				}
-			};
-
 			if (json->type == Type::String) {
 				if (isObj)
-					result.append("\"").append(json->name).append("\":");
-				result.append("\"");
-				appendEscapedString(json->valueString);
+					appendQuotedKey(json->name, result);
+				result.push_back('"');
+				appendEscapedString(json->valueString, result);
 				result.append("\",");
 			}
 			else if (json->type == Type::Number) {
 				if (isObj)
-					result.append("\"").append(json->name).append("\":");
+					appendQuotedKey(json->name, result);
 				if (json->valueNumber > LLONG_MAX || json->valueNumber < LLONG_MIN) {
 					char buffer[100];
-					sprintf(buffer, "%e", json->valueNumber);
+					snprintf(buffer, sizeof(buffer), "%e", json->valueNumber);
 					result.append(buffer);
 				}
 				else {
@@ -1004,7 +1095,7 @@ namespace ZJSON {
 						result.append("-0");
 					else {
 						char buffer[100];
-						sprintf(buffer, "%lld", intValue);
+						snprintf(buffer, sizeof(buffer), "%lld", intValue);
 						result.append(buffer);
 					}
 					if (std::abs(json->valueNumber - intValue) >= MinValue) {
@@ -1017,17 +1108,17 @@ namespace ZJSON {
 			}
 			else if (json->type == Type::True) {
 				if (isObj)
-					result.append("\"").append(json->name).append("\":");
+					appendQuotedKey(json->name, result);
 				result.append("true,");
 			}
 			else if (json->type == Type::False) {
 				if (isObj)
-					result.append("\"").append(json->name).append("\":");
+					appendQuotedKey(json->name, result);
 				result.append("false,");
 			}
 			else if (json->type == Type::Null) {
 				if (isObj)
-					result.append("\"").append(json->name).append("\":");
+					appendQuotedKey(json->name, result);
 				result.append("null,");
 			}
 		}
@@ -1046,8 +1137,9 @@ namespace ZJSON {
 			while (cur || !s.empty()) {
 				if (cur) {
 					if (cur->type == Type::Object || cur->type == Type::Array) {
-						result.append(cur->name.empty() ? "" : "\"" + cur->name + "\":")
-							.append(cur->type == Type::Object ? "{" : "[");
+						if (!cur->name.empty())
+							appendQuotedKey(cur->name, result);
+						result.append(cur->type == Type::Object ? "{" : "[");
 						if (cur->child == nullptr)
 							result.append(cur->type == Type::Object ? "}," : "],");
 						s.push(cur);
@@ -1113,16 +1205,28 @@ namespace ZJSON {
 			string& err;
 			bool failed;
 
+			string make_error(string&& msg) const {
+				size_t line = 1, col = 1;
+				for (size_t j = 0; j < i && j < str.size(); ++j) {
+					if (str[j] == '\n') { line++; col = 1; }
+					else { col++; }
+				}
+				return "line " + std::to_string(line) + ", col " + std::to_string(col) + ": " + msg;
+			}
+
 			Json fail(string&& msg) {
-				Json err(Type::Error);
-				err.name = msg;
-				return fail(std::move(msg), err);
+				string fullMsg = make_error(std::move(msg));
+				if (!failed)
+					err = fullMsg;
+				failed = true;
+				Json errNode(Type::Error);
+				errNode.name = std::move(fullMsg);
+				return errNode;
 			}
 
 			template <typename T> T fail(string&& msg, const T err_ret) {
-				//std::cout << std::endl << " --- Error When Parsing --- " << msg << std::endl;
 				if (!failed)
-					err = std::move(msg);
+					err = make_error(std::move(msg));
 				failed = true;
 				return err_ret;
 			}
