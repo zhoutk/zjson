@@ -13,6 +13,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
+option(CMAKE_ZJSON_ENABLE_ASAN "Enable AddressSanitizer for memory bug detection" OFF)
+
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 
 if(MSVC)
@@ -24,6 +26,16 @@ elseif(UNIX)
 
     set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O2")
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2")
+endif()
+
+if(CMAKE_ZJSON_ENABLE_ASAN)
+    if(MSVC)
+        message(WARNING "CMAKE_ZJSON_ENABLE_ASAN is ON, but this project currently enables ASan only for non-MSVC toolchains.")
+    else()
+        add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=address)
+        message(STATUS "AddressSanitizer enabled")
+    endif()
 endif()
 
 add_definitions(-DDEBUG)
@@ -70,6 +82,10 @@ if (CMAKE_ZJSON_ENABLE_TEST)
     add_executable(test_conformance tests/test_conformance.cpp)
     target_link_libraries(test_conformance gtest gtest_main)
     add_test(NAME test_conformance COMMAND test_conformance)
+
+    add_executable(test_rfc_cases tests/test_rfc_cases.cpp)
+    target_link_libraries(test_rfc_cases gtest gtest_main)
+    add_test(NAME test_rfc_cases COMMAND test_rfc_cases)
 
 endif()
 

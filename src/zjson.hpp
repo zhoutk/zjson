@@ -118,9 +118,9 @@ namespace ZJSON {
 		double valueNumber;
 		string name;
 
-		static Json parse(const std::string& in, std::string& err)
+		static Json parse(const std::string& in, std::string& err, bool allowComments = true)
 		{
-			JsonParser parser{ in, 0, err, false };
+			JsonParser parser{ in, 0, err, false, allowComments };
 			Json result = parser.parse_json(0);
 			if (result.type == Type::Error)
 				return result;
@@ -130,9 +130,9 @@ namespace ZJSON {
 			return result;
 		}
 
-		static Json parse(const char* in, std::string& err) {
+		static Json parse(const char* in, std::string& err, bool allowComments = true) {
 			if (in) {
-				return parse(std::string(in), err);
+				return parse(std::string(in), err, allowComments);
 			}
 			else {
 				err = "null input";
@@ -342,6 +342,10 @@ namespace ZJSON {
 
 		static Json ParseJson(const std::string& input, std::string& errMsg) {
 			return parse(input, errMsg);
+		}
+
+		static Json ParseJsonStrict(const std::string& input, std::string& errMsg) {
+			return parse(input, errMsg, false);
 		}
 
 		~Json() {
@@ -1204,6 +1208,7 @@ namespace ZJSON {
 			size_t i;
 			string& err;
 			bool failed;
+			bool allowComments;
 
 			string make_error(string&& msg) const {
 				size_t line = 1, col = 1;
@@ -1239,6 +1244,8 @@ namespace ZJSON {
 			bool consume_comment() {
 				bool comment_found = false;
 				if (i < str.size() && str[i] == '/') {
+					if (!allowComments)
+						return fail("comments are not allowed in strict mode", false);
 					i++;
 					if (i == str.size())
 						return fail("unexpected end of input after start of comment", false);
