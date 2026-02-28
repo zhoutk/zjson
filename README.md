@@ -191,6 +191,37 @@ result of  ajson：
 ```
 Detailed description, please move to demo.cpp or unit test in tests catalogue.
 
+## Implementation-Defined Behavior
+
+The following table documents zjson's behavior on inputs where the JSON specification (RFC 8259) does not mandate a particular outcome, or where common implementations differ. These correspond to the `i_*` (implementation-defined) category in the [JSONTestSuite](https://github.com/nst/JSONTestSuite).
+
+| Behavior | zjson | Notes |
+|---|---|---|
+| **Duplicate object keys** | First-wins | `operator[]` returns the first occurrence; `keymap` uses `emplace()` |
+| **Number precision** | IEEE 754 `double` | Parsed via `strtod`; integers that fit in `int` use `atoi` fast path |
+| **Very large numbers** | `±Infinity` | `strtod` result; no error |
+| **Very small numbers** | `0.0` or denormal | `strtod` result; no error |
+| **Maximum nesting depth** | 100 levels | Configurable via `max_depth`; deeper input is rejected |
+| **UTF-8 BOM (U+FEFF)** | Not consumed | BOM bytes cause a parse error (not treated as whitespace) |
+| **Comments (`//` and `/* */`)** | Accepted in extension mode | `ParseJson()` allows comments; `ParseJsonStrict()` rejects them |
+| **Trailing commas** | Rejected | `[1,]` and `{"a":1,}` produce parse errors |
+| **Leading zeros** | Rejected | `012`, `-01` produce parse errors |
+| **`NaN` / `Infinity` literals** | Rejected | Not valid JSON values |
+| **Single-quoted strings** | Rejected | Only double-quoted strings are accepted |
+| **Unquoted object keys** | Rejected | Keys must be double-quoted strings |
+| **Lone surrogates in `\uXXXX`** | Encoded as-is into UTF-8 | Not rejected in extension mode; use `ParseJsonStrictUtf8()` for byte-level validation |
+| **UTF-8 byte validation** | Off by default | Enable via `ParseJsonStrictUtf8()` to reject invalid byte sequences |
+| **Maximum string length** | Limited by `std::string` / memory | No explicit limit |
+| **Null bytes in strings** | Accepted via `\u0000` | Raw `0x00` bytes in the input stream cause string termination issues on C-string APIs |
+
+### Parsing Modes
+
+| API | Comments | UTF-8 validation | Use case |
+|---|---|---|---|
+| `ParseJson(input, err)` | Allowed | Off | General use with extensions |
+| `ParseJsonStrict(input, err)` | Rejected | Off | Strict RFC 8259 structure |
+| `ParseJsonStrictUtf8(input, err)` | Rejected | On | Full RFC 8259 + UTF-8 compliance |
+
 ## Project site
 ```
 https://gitee.com/zhoutk/zjson

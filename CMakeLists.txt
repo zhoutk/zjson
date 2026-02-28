@@ -87,6 +87,10 @@ if (CMAKE_ZJSON_ENABLE_TEST)
     target_link_libraries(test_rfc_cases gtest gtest_main)
     add_test(NAME test_rfc_cases COMMAND test_rfc_cases)
 
+    add_executable(test_jsontestsuite tests/test_jsontestsuite.cpp)
+    target_link_libraries(test_jsontestsuite gtest gtest_main)
+    add_test(NAME test_jsontestsuite COMMAND test_jsontestsuite)
+
 endif()
 
 ##--------------------- Benchmark -------------------------------------------##

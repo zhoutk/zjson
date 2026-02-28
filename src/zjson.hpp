@@ -95,6 +95,35 @@ namespace ZJSON {
 		out.append("\":");
 	}
 
+	// UTF-8 byte sequence validator (RFC 3629)
+	static inline bool validate_utf8_bytes(const string& s, size_t& errorPos) {
+		size_t len = s.size();
+		size_t pos = 0;
+		while (pos < len) {
+			unsigned char b0 = static_cast<unsigned char>(s[pos]);
+			if (b0 <= 0x7F) { pos++; continue; }
+			int seqLen;
+			uint32_t cp;
+			if ((b0 & 0xE0) == 0xC0) { seqLen = 2; cp = b0 & 0x1F; }
+			else if ((b0 & 0xF0) == 0xE0) { seqLen = 3; cp = b0 & 0x0F; }
+			else if ((b0 & 0xF8) == 0xF0) { seqLen = 4; cp = b0 & 0x07; }
+			else { errorPos = pos; return false; }
+			if (pos + seqLen > len) { errorPos = pos; return false; }
+			for (int j = 1; j < seqLen; j++) {
+				unsigned char bj = static_cast<unsigned char>(s[pos + j]);
+				if ((bj & 0xC0) != 0x80) { errorPos = pos; return false; }
+				cp = (cp << 6) | (bj & 0x3F);
+			}
+			if (seqLen == 2 && cp < 0x80) { errorPos = pos; return false; }
+			if (seqLen == 3 && cp < 0x800) { errorPos = pos; return false; }
+			if (seqLen == 4 && cp < 0x10000) { errorPos = pos; return false; }
+			if (cp >= 0xD800 && cp <= 0xDFFF) { errorPos = pos; return false; }
+			if (cp > 0x10FFFF) { errorPos = pos; return false; }
+			pos += seqLen;
+		}
+		return true;
+	}
+
 	enum class Type {
 		Error,
 		False,
@@ -118,10 +147,17 @@ namespace ZJSON {
 		double valueNumber;
 		string name;
 
-		static Json parse(const std::string& in, std::string& err, bool allowComments = true)
+		static Json parse(const std::string& in, std::string& err, bool allowComments = true, bool validateUtf8 = false)
 		{
+			if (validateUtf8) {
+				size_t errPos = 0;
+				if (!validate_utf8_bytes(in, errPos)) {
+					err = "invalid UTF-8 byte at position " + std::to_string(errPos);
+					return Json(Type::Error);
+				}
+			}
 			JsonParser parser{ in, 0, err, false, allowComments };
-			Json result = parser.parse_json(0);
+			Json result = parser.parse_json_pda();
 			if (result.type == Type::Error)
 				return result;
 			parser.consume_garbage();
@@ -130,9 +166,9 @@ namespace ZJSON {
 			return result;
 		}
 
-		static Json parse(const char* in, std::string& err, bool allowComments = true) {
+		static Json parse(const char* in, std::string& err, bool allowComments = true, bool validateUtf8 = false) {
 			if (in) {
-				return parse(std::string(in), err, allowComments);
+				return parse(std::string(in), err, allowComments, validateUtf8);
 			}
 			else {
 				err = "null input";
@@ -346,6 +382,10 @@ namespace ZJSON {
 
 		static Json ParseJsonStrict(const std::string& input, std::string& errMsg) {
 			return parse(input, errMsg, false);
+		}
+
+		static Json ParseJsonStrictUtf8(const std::string& input, std::string& errMsg) {
+			return parse(input, errMsg, false, true);
 		}
 
 		~Json() {
@@ -1285,15 +1325,6 @@ namespace ZJSON {
 				} while (comment_found);
 			}
 
-			char get_next_token() {
-				consume_garbage();
-				if (failed) return static_cast<char>(0);
-				if (i == str.size())
-					return fail("unexpected end of input", static_cast<char>(0));
-
-				return str[i++];
-			}
-
 			void encode_utf8(long pt, string& out) {
 				if (pt < 0)
 					return;
@@ -1377,23 +1408,6 @@ namespace ZJSON {
 
 				rs.valueNumber = std::strtod(str.c_str() + start_pos, nullptr);
 				return rs;
-			}
-
-			Json expect(const string& expected, Json res) {
-				if (i > 0) {
-					i--;
-					if (str.compare(i, expected.length(), expected) == 0) {
-						i += expected.length();
-						return res;
-					}
-					else {
-						return fail("parse error: expected " + expected + ", got " + str.substr(i, expected.length()));
-					}
-				}
-				else {
-					return Json(Type::Error);
-				}
-
 			}
 
 			string parse_string() {
@@ -1480,99 +1494,211 @@ namespace ZJSON {
 				}
 			}
 
-			Json parse_json(int depth) {
-				if (depth > max_depth) {
-					return fail("exceeded maximum nesting depth");
-				}
+			// --------------- Explicit-stack PDA parser ---------------
+			// Replaces the former recursive-descent parse_json(depth).
+			// Uses a heap-allocated stack instead of the call stack,
+			// eliminating stack-overflow risk for deeply nested input.
+			Json parse_json_pda() {
+				enum class PState {
+					VALUE,              // expect any JSON value
+					OBJ_KEY_OR_END,     // inside object: expect '"' (key) or '}'
+					OBJ_KEY,            // inside object after comma: expect '"' (key)
+					OBJ_COLON,          // expect ':'
+					OBJ_COMMA_OR_END,   // expect ',' or '}'
+					ARR_COMMA_OR_END    // expect ',' or ']'
+				};
+				struct Frame {
+					Json* container;
+					string key;
+					PState childDone;   // state to resume after delivering a child value
+				};
 
-				char ch = get_next_token();
-				if (failed)
-					return Json(Type::Error);
+				std::vector<Frame> stk;
+				stk.reserve(32);
 
-				if (ch == '-' || (ch >= '0' && ch <= '9')) {
-					i--;
-					return parse_number();
-				}
+				// RAII guard: delete remaining heap containers on any exit path
+				struct Cleanup {
+					std::vector<Frame>& s;
+					~Cleanup() { for (auto& f : s) delete f.container; }
+				} guard{ stk };
 
-				if (ch == 't')
-					return expect("true", Json(Type::True));
+				Json root(Type::Error);
+				PState state = PState::VALUE;
 
-				if (ch == 'f')
-					return expect("false", Json(Type::False));
+				// Close the top-most container and deliver to parent or set root
+				auto closeTop = [&]() -> bool {
+					Json* done = stk.back().container;
+					stk.back().container = nullptr;
+					stk.pop_back();
+					if (stk.empty()) {
+						root = std::move(*done);
+						delete done;
+						return true;
+					}
+					Frame& parent = stk.back();
+					if (parent.container->type == Type::Object)
+						done->name = std::move(parent.key);
+					parent.container->appendNodeToJson(done);
+					state = parent.childDone;
+					return false;
+				};
 
-				if (ch == 'n')
-					return expect("null", Json(Type::Null));
+				// Deliver a parsed leaf value to the current container or set root
+				auto deliver = [&](Json* val) -> bool {
+					if (stk.empty()) {
+						root = std::move(*val);
+						delete val;
+						return true;
+					}
+					Frame& top = stk.back();
+					if (top.container->type == Type::Object)
+						val->name = std::move(top.key);
+					top.container->appendNodeToJson(val);
+					state = top.childDone;
+					return false;
+				};
 
-				if (ch == '"') {
-					Json jsonString(Type::String);
-					jsonString.valueString = parse_string();
-					return jsonString;
-				}
+				for (;;) {
+					consume_garbage();
+					if (failed) return Json(Type::Error);
+					if (i >= str.size()) return fail("unexpected end of input");
 
-				if (ch == '{') {
-					Json data(Type::Object);
-					ch = get_next_token();
-					if (ch == '}')
-						return data;
+					char ch = str[i];
 
-					while (1) {
+					switch (state) {
+
+					case PState::VALUE: {
+						// ---- open object ----
+						if (ch == '{') {
+							i++;
+							if (stk.size() > static_cast<size_t>(max_depth))
+								return fail("exceeded maximum nesting depth");
+							stk.push_back({ new Json(Type::Object), {}, PState::OBJ_COMMA_OR_END });
+							state = PState::OBJ_KEY_OR_END;
+							break;
+						}
+						// ---- open array ----
+						if (ch == '[') {
+							i++;
+							if (stk.size() > static_cast<size_t>(max_depth))
+								return fail("exceeded maximum nesting depth");
+							stk.push_back({ new Json(Type::Array), {}, PState::ARR_COMMA_OR_END });
+							consume_garbage();
+							if (failed) return Json(Type::Error);
+							if (i < str.size() && str[i] == ']') {
+								i++;
+								if (closeTop()) return root;
+								break;
+							}
+							state = PState::VALUE;
+							break;
+						}
+						// ---- primitives ----
+						Json* val = nullptr;
+						if (ch == '"') {
+							i++;
+							string s = parse_string();
+							if (failed) return Json(Type::Error);
+							val = new Json(Type::String);
+							val->valueString = std::move(s);
+						}
+						else if (ch == '-' || (ch >= '0' && ch <= '9')) {
+							Json num = parse_number();
+							if (failed) return Json(Type::Error);
+							val = new Json(std::move(num));
+						}
+						else if (ch == 't') {
+							size_t rem = str.size() - i;
+							if (rem >= 4 && str.compare(i, 4, "true") == 0) {
+								i += 4; val = new Json(Type::True);
+							} else {
+								return fail("parse error: expected true, got " + str.substr(i, std::min(rem, static_cast<size_t>(4))));
+							}
+						}
+						else if (ch == 'f') {
+							size_t rem = str.size() - i;
+							if (rem >= 5 && str.compare(i, 5, "false") == 0) {
+								i += 5; val = new Json(Type::False);
+							} else {
+								return fail("parse error: expected false, got " + str.substr(i, std::min(rem, static_cast<size_t>(5))));
+							}
+						}
+						else if (ch == 'n') {
+							size_t rem = str.size() - i;
+							if (rem >= 4 && str.compare(i, 4, "null") == 0) {
+								i += 4; val = new Json(Type::Null);
+							} else {
+								return fail("parse error: expected null, got " + str.substr(i, std::min(rem, static_cast<size_t>(4))));
+							}
+						}
+						else {
+							return fail("expected value, got " + esc(ch));
+						}
+						if (deliver(val)) return root;
+						break;
+					}
+
+					case PState::OBJ_KEY_OR_END: {
+						if (ch == '}') {
+							i++;
+							if (closeTop()) return root;
+							break;
+						}
 						if (ch != '"')
 							return fail("expected '\"' in object, got " + esc(ch));
+						i++;
+						stk.back().key = parse_string();
+						if (failed) return Json(Type::Error);
+						state = PState::OBJ_COLON;
+						break;
+					}
 
-						string key = parse_string();
-						if (failed)
-							return Json(Type::Error);
+					case PState::OBJ_KEY: {
+						if (ch != '"')
+							return fail("expected '\"' in object, got " + esc(ch));
+						i++;
+						stk.back().key = parse_string();
+						if (failed) return Json(Type::Error);
+						state = PState::OBJ_COLON;
+						break;
+					}
 
-						ch = get_next_token();
+					case PState::OBJ_COLON: {
 						if (ch != ':')
 							return fail("expected ':' in object, got " + esc(ch));
+						i++;
+						state = PState::VALUE;
+						break;
+					}
 
-						Json value = parse_json(depth + 1);
-						value.name = key;
-
-						if (failed)
-							return Json(Type::Error);
-
-						data.appendNodeToJson(new Json(std::move(value)));
-
-						ch = get_next_token();
-						if (ch == '}')
+					case PState::OBJ_COMMA_OR_END: {
+						if (ch == '}') {
+							i++;
+							if (closeTop()) return root;
 							break;
+						}
 						if (ch != ',')
 							return fail("expected ',' in object, got " + esc(ch));
-
-						ch = get_next_token();
+						i++;
+						state = PState::OBJ_KEY;
+						break;
 					}
-					return data;
-				}
 
-				if (ch == '[') {
-					Json data(Type::Array);
-					ch = get_next_token();
-					if (ch == ']')
-						return data;
-
-					while (1) {
-						i--;
-						Json value = parse_json(depth + 1);
-
-						if (failed)
-							return Json(Type::Error);
-
-						data.appendNodeToJson(new Json(std::move(value)));
-
-						ch = get_next_token();
-						if (ch == ']')
+					case PState::ARR_COMMA_OR_END: {
+						if (ch == ']') {
+							i++;
+							if (closeTop()) return root;
 							break;
+						}
 						if (ch != ',')
-							return fail("expected ',' in object, got " + esc(ch));
-
-						ch = get_next_token();
+							return fail("expected ',' in array, got " + esc(ch));
+						i++;
+						state = PState::VALUE;
+						break;
 					}
-					return data;
-				}
 
-				return fail("expected value, got " + esc(ch));
+					} // switch
+				} // for
 			}
 
 		};
