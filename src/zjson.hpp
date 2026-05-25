@@ -321,6 +321,15 @@ namespace ZJSON {
 			return true;
 		}
 
+		void overwritePreservingLinks(const Json& value, bool preserveName = true) {
+			Json* next = this->brother;
+			string savedName = this->name;
+			*this = value;
+			this->brother = next;
+			if (preserveName)
+				this->name = std::move(savedName);
+		}
+
 		void appendRawValue(const Json* json, string& result) const {
 			switch (json->type) {
 			case Type::String:
@@ -1079,6 +1088,303 @@ namespace ZJSON {
 
 		bool operator!=(const Json& other) const {
 			return !(*this == other);
+		}
+
+		Json& mergePatch(const Json& patch) {
+			if (!patch.isObject()) {
+				*this = patch;
+				return *this;
+			}
+
+			if (!this->isObject()) {
+				*this = Json(JsonType::Object);
+			}
+
+			for (Json* cur = patch.child; cur; cur = cur->brother) {
+				if (cur->isNull()) {
+					this->removeDirectChildrenByKey(cur->name);
+					continue;
+				}
+
+				Json* target = this->directChildByKey(cur->name);
+				if (cur->isObject()) {
+					Json merged = target ? *target : Json(JsonType::Object);
+					merged.mergePatch(*cur);
+					if (target)
+						target->overwritePreservingLinks(merged, true);
+					else
+						this->add(cur->name, merged);
+					continue;
+				}
+
+				if (target)
+					target->overwritePreservingLinks(*cur, true);
+				else
+					this->add(cur->name, *cur);
+			}
+			return *this;
+		}
+
+		Json applyPatch(const Json& operations, string& err) const {
+			err.clear();
+			if (!operations.isArray()) {
+				err = "JSON Patch document must be an array";
+				return Json(Type::Error);
+			}
+
+			Json result = *this;
+
+			auto makeError = [&](const string& message) -> Json {
+				err = message;
+				Json failure(Type::Error);
+				failure.name = message;
+				return failure;
+			};
+
+			auto resolveParent = [&](Json& root, const string& path, bool allowAppend, Json*& parent, string& token, bool& appendToArray, size_t& index) -> bool {
+				appendToArray = false;
+				index = 0;
+				if (path.empty()) {
+					parent = nullptr;
+					token.clear();
+					return true;
+				}
+				if (path[0] != '/') {
+					err = "JSON Pointer must start with '/'";
+					return false;
+				}
+
+				Json* current = &root;
+				size_t start = 1;
+				while (true) {
+					size_t slash = path.find('/', start);
+					string raw = path.substr(start, slash == string::npos ? string::npos : slash - start);
+					string decoded;
+					if (!decodePointerToken(raw, decoded)) {
+						err = "invalid JSON Pointer escape in path '" + path + "'";
+						return false;
+					}
+					if (slash == string::npos) {
+						parent = current;
+						token = std::move(decoded);
+						if (current->isArray()) {
+							if (allowAppend && token == "-") {
+								appendToArray = true;
+								index = static_cast<size_t>(current->size());
+								return true;
+							}
+							if (!parsePointerIndex(token, index)) {
+								err = "invalid array index '" + token + "' in path '" + path + "'";
+								return false;
+							}
+						}
+						return true;
+					}
+
+					if (current->isObject()) {
+						current = current->directChildByKey(decoded);
+					}
+					else if (current->isArray()) {
+						size_t childIndex = 0;
+						if (!parsePointerIndex(decoded, childIndex)) {
+							err = "invalid array index '" + decoded + "' in path '" + path + "'";
+							return false;
+						}
+						current = current->directChildByIndex(childIndex);
+					}
+					else {
+						err = "path '" + path + "' traverses a non-container node";
+						return false;
+					}
+
+					if (!current) {
+						err = "path '" + path + "' does not exist";
+						return false;
+					}
+					start = slash + 1;
+				}
+			};
+
+			auto resolveTarget = [&](Json& root, const string& path, Json*& target, Json*& parent, string& token, size_t& index) -> bool {
+				bool appendToArray = false;
+				if (path.empty()) {
+					target = &root;
+					parent = nullptr;
+					token.clear();
+					index = 0;
+					return true;
+				}
+				if (!resolveParent(root, path, false, parent, token, appendToArray, index))
+					return false;
+				if (!parent) {
+					target = &root;
+					return true;
+				}
+				if (parent->isObject()) {
+					target = parent->directChildByKey(token);
+				}
+				else if (parent->isArray()) {
+					target = parent->directChildByIndex(index);
+				}
+				else {
+					err = "path '" + path + "' parent is not a container";
+					return false;
+				}
+				if (!target) {
+					err = "path '" + path + "' does not exist";
+					return false;
+				}
+				return true;
+			};
+
+			auto addValueAtPath = [&](Json& root, const string& path, const Json& value) -> bool {
+				Json* parent = nullptr;
+				string token;
+				bool appendToArray = false;
+				size_t index = 0;
+				if (!resolveParent(root, path, true, parent, token, appendToArray, index))
+					return false;
+				if (!parent) {
+					root = value;
+					return true;
+				}
+				if (parent->isObject()) {
+					Json* existing = parent->directChildByKey(token);
+					if (existing)
+						existing->overwritePreservingLinks(value, true);
+					else
+						parent->add(token, value);
+					return true;
+				}
+				if (!parent->isArray()) {
+					err = "path '" + path + "' parent is not a container";
+					return false;
+				}
+				const size_t arraySize = static_cast<size_t>(parent->size());
+				if (appendToArray || index == arraySize) {
+					parent->push_back(value);
+					return true;
+				}
+				if (index > arraySize) {
+					err = "array index out of bounds in path '" + path + "'";
+					return false;
+				}
+				parent->insert(static_cast<int>(index), value);
+				return true;
+			};
+
+			auto removeAtPath = [&](Json& root, const string& path) -> bool {
+				Json* target = nullptr;
+				Json* parent = nullptr;
+				string token;
+				size_t index = 0;
+				if (!resolveTarget(root, path, target, parent, token, index))
+					return false;
+				if (!parent) {
+					err = "removing the document root is not supported";
+					return false;
+				}
+				if (parent->isObject())
+					parent->removeDirectChildrenByKey(token);
+				else
+					parent->remove(static_cast<int>(index));
+				return true;
+			};
+
+			auto replaceAtPath = [&](Json& root, const string& path, const Json& value) -> bool {
+				Json* target = nullptr;
+				Json* parent = nullptr;
+				string token;
+				size_t index = 0;
+				if (!resolveTarget(root, path, target, parent, token, index))
+					return false;
+				if (!parent) {
+					root = value;
+					return true;
+				}
+				target->overwritePreservingLinks(value, parent->isObject());
+				return true;
+			};
+
+			auto isDescendantMove = [](const string& from, const string& path) -> bool {
+				if (from.empty())
+					return !path.empty();
+				if (path.size() <= from.size())
+					return false;
+				return path.compare(0, from.size(), from) == 0 && path[from.size()] == '/';
+			};
+
+			for (Json* operation = operations.child; operation; operation = operation->brother) {
+				if (!operation->isObject())
+					return makeError("each JSON Patch operation must be an object");
+
+				Json* opField = operation->directChildByKey("op");
+				Json* pathField = operation->directChildByKey("path");
+				if (!opField || !opField->isString())
+					return makeError("JSON Patch operation is missing string field 'op'");
+				if (!pathField || !pathField->isString())
+					return makeError("JSON Patch operation is missing string field 'path'");
+
+				const string op = opField->valueString;
+				const string path = pathField->valueString;
+
+				if (op == "add") {
+					Json* valueField = operation->directChildByKey("value");
+					if (!valueField)
+						return makeError("add operation requires field 'value'");
+					if (!addValueAtPath(result, path, *valueField))
+						return makeError(err);
+				}
+				else if (op == "remove") {
+					if (!removeAtPath(result, path))
+						return makeError(err);
+				}
+				else if (op == "replace") {
+					Json* valueField = operation->directChildByKey("value");
+					if (!valueField)
+						return makeError("replace operation requires field 'value'");
+					if (!replaceAtPath(result, path, *valueField))
+						return makeError(err);
+				}
+				else if (op == "move" || op == "copy") {
+					Json* fromField = operation->directChildByKey("from");
+					if (!fromField || !fromField->isString())
+						return makeError(op + " operation requires string field 'from'");
+					const string from = fromField->valueString;
+					if (op == "move" && isDescendantMove(from, path))
+						return makeError("move destination cannot be inside source path");
+
+					Json* source = nullptr;
+					Json* sourceParent = nullptr;
+					string sourceToken;
+					size_t sourceIndex = 0;
+					if (!resolveTarget(result, from, source, sourceParent, sourceToken, sourceIndex))
+						return makeError(err);
+					Json movedValue = *source;
+					if (op == "move" && !removeAtPath(result, from))
+						return makeError(err);
+					if (!addValueAtPath(result, path, movedValue))
+						return makeError(err);
+				}
+				else if (op == "test") {
+					Json* valueField = operation->directChildByKey("value");
+					if (!valueField)
+						return makeError("test operation requires field 'value'");
+					Json* target = nullptr;
+					Json* parent = nullptr;
+					string token;
+					size_t index = 0;
+					if (!resolveTarget(result, path, target, parent, token, index))
+						return makeError(err);
+					if (!(*target == *valueField))
+						return makeError("test operation failed at path '" + path + "'");
+				}
+				else {
+					return makeError("unsupported JSON Patch operation '" + op + "'");
+				}
+			}
+
+			return result;
 		}
 
 		iterator begin();

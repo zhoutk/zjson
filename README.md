@@ -9,7 +9,7 @@
 > `test_parsing/` corpus — **95/95** `y_` (must-accept) and **188/188** `n_` (must-reject)
 > cases pass in strict mode. See [`docs/jsontestsuite_results.txt`](docs/jsontestsuite_results.txt).
 
-Recent API additions include `toString(indent)` pretty-printing, semantic `==/!=`, `begin/end/cbegin/cend` iteration with structured bindings, duplicate-key `ParseOptions`, JSON Pointer via `at("/a/b/0")`, and ADL-based `to_json` / `from_json` hooks.
+Recent API additions include `toString(indent)` pretty-printing, semantic `==/!=`, `begin/end/cbegin/cend` iteration with structured bindings, duplicate-key `ParseOptions`, JSON Pointer via `at("/a/b/0")`, JSON Merge Patch / JSON Patch via `mergePatch(...)` and `applyPatch(..., err)`, and ADL-based `to_json` / `from_json` hooks.
 
 ## Introduce
 From node.Js back to c++. I especially miss the pleasure of using json in javascript, so try to diy one. I used many libraries, such as: rapidjson, cJson, CJsonObject, drleq cppjson, json11, etc. Zjson's data structure is greatly inspired by cJOSN. The parsing part refers to json11, thanks! Finally, because data storage needs not only to distinguish values, but also to know their types. I choose std:: variant and std:: any which supported by C++17. Finally, the C++ version is fixed at C++17. This library is designed as a single header file, not relying on any other lib than the C++ standard library.

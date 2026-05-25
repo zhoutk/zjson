@@ -260,3 +260,63 @@ TEST(TestSpec, adl_to_json_from_json_hooks) {
     EXPECT_EQ(roundTrip.name, "kevin");
     EXPECT_EQ(roundTrip.age, 18);
 }
+
+TEST(TestSpec, json_merge_patch_applies_rfc7396_rules) {
+    Json target{
+        {"title", "Goodbye!"},
+        {"author", Json{{"givenName", "John"}, {"familyName", "Doe"}}},
+        {"tags", Json(JsonType::Array).add({"example", "sample"})},
+        {"content", "This will be unchanged"}
+    };
+
+    Json patch{
+        {"title", "Hello!"},
+        {"phoneNumber", "+01-123-456-7890"},
+        {"author", Json{{"familyName", nullptr}}},
+        {"tags", Json(JsonType::Array).add({"example"})}
+    };
+
+    target.mergePatch(patch);
+
+    EXPECT_EQ(target.toString(), "{\"title\":\"Hello!\",\"author\":{\"givenName\":\"John\"},\"tags\":[\"example\"],\"content\":\"This will be unchanged\",\"phoneNumber\":\"+01-123-456-7890\"}");
+
+    Json scalarBase(5);
+    scalarBase.mergePatch(Json{{"created", true}});
+    EXPECT_EQ(scalarBase.toString(), "{\"created\":true}");
+}
+
+TEST(TestSpec, json_patch_applies_rfc6902_operations) {
+    Json base{
+        {"foo", "bar"},
+        {"numbers", Json(JsonType::Array).add({1, 2, 3})},
+        {"nested", Json{{"x", 1}}}
+    };
+
+    Json ops(JsonType::Array);
+    ops.add(Json{{"op", "add"}, {"path", "/numbers/-"}, {"value", 4}});
+    ops.add(Json{{"op", "replace"}, {"path", "/foo"}, {"value", "baz"}});
+    ops.add(Json{{"op", "add"}, {"path", "/nested/y"}, {"value", true}});
+    ops.add(Json{{"op", "copy"}, {"from", "/nested/y"}, {"path", "/copied"}});
+    ops.add(Json{{"op", "move"}, {"from", "/numbers/0"}, {"path", "/numbers/2"}});
+    ops.add(Json{{"op", "test"}, {"path", "/nested/x"}, {"value", 1}});
+    ops.add(Json{{"op", "remove"}, {"path", "/nested/x"}});
+
+    std::string err;
+    Json patched = base.applyPatch(ops, err);
+
+    EXPECT_FALSE(patched.isError()) << err;
+    EXPECT_TRUE(err.empty());
+    EXPECT_EQ(patched.toString(), "{\"foo\":\"baz\",\"numbers\":[2,3,1,4],\"nested\":{\"y\":true},\"copied\":true}");
+}
+
+TEST(TestSpec, json_patch_reports_failures) {
+    Json base{{"foo", "bar"}};
+    Json failingOps(JsonType::Array);
+    failingOps.add(Json{{"op", "test"}, {"path", "/foo"}, {"value", "baz"}});
+
+    std::string err;
+    Json failed = base.applyPatch(failingOps, err);
+
+    EXPECT_TRUE(failed.isError());
+    EXPECT_NE(err.find("test operation failed"), std::string::npos);
+}
