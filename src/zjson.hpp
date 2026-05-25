@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <charconv>
 #include <system_error>
+#include <tuple>
 #include <type_traits>
 
 namespace ZJSON {
@@ -38,6 +39,8 @@ namespace ZJSON {
 		Array = 7
 	};
 
+	class Json;
+
 	// ----------------------------------------------------------------------
 	// Number → string serialization (RFC 8259 compliant).
 	// Uses std::to_chars (C++17, shortest round-trip) when the implementation
@@ -48,6 +51,20 @@ namespace ZJSON {
 	namespace detail {
 		template <typename T, typename = void>
 		struct has_fp_to_chars : std::false_type {};
+
+		template <typename T, typename = void>
+		struct has_adl_to_json : std::false_type {};
+
+		template <typename T>
+		struct has_adl_to_json<T, std::void_t<decltype(to_json(std::declval<Json&>(), std::declval<const T&>()))>>
+			: std::true_type {};
+
+		template <typename T, typename = void>
+		struct has_adl_from_json : std::false_type {};
+
+		template <typename T>
+		struct has_adl_from_json<T, std::void_t<decltype(from_json(std::declval<const Json&>(), std::declval<T&>()))>>
+			: std::true_type {};
 
 		template <typename T>
 		struct has_fp_to_chars<T, std::void_t<decltype(std::to_chars(
@@ -168,8 +185,28 @@ namespace ZJSON {
 		Array
 	};
 
+	class JsonIterator;
+	class JsonConstIterator;
+	class JsonEntry;
+	class JsonConstEntry;
+
+	struct ParseOptions {
+		enum class DuplicateKeyPolicy {
+			KeepFirst,
+			KeepLast,
+			Reject
+		};
+
+		bool allowComments = true;
+		bool validateUtf8 = false;
+		DuplicateKeyPolicy duplicateKey = DuplicateKeyPolicy::KeepLast;
+	};
+
 	class Json final {
 		friend class JsonIterator;
+		friend class JsonConstIterator;
+		friend class JsonEntry;
+		friend class JsonConstEntry;
 	private:
 		Json* brother;
 		Json* child;
@@ -180,16 +217,263 @@ namespace ZJSON {
 		double valueNumber;
 		string name;
 
-		static Json parse(const std::string& in, std::string& err, bool allowComments = true, bool validateUtf8 = false)
+		static inline void appendIndent(string& out, int indentSize, int depth) {
+			out.append(static_cast<size_t>(indentSize * depth), ' ');
+		}
+
+		size_t childCount() const {
+			size_t count = 0;
+			for (Json* cur = this->child; cur; cur = cur->brother)
+				++count;
+			return count;
+		}
+
+		Json* directChildByKey(const string& key) {
+			for (Json* cur = this->child; cur; cur = cur->brother) {
+				if (cur->name == key)
+					return cur;
+			}
+			return nullptr;
+		}
+
+		const Json* directChildByKey(const string& key) const {
+			for (Json* cur = this->child; cur; cur = cur->brother) {
+				if (cur->name == key)
+					return cur;
+			}
+			return nullptr;
+		}
+
+		Json* directChildByIndex(size_t index) {
+			Json* cur = this->child;
+			while (cur && index > 0) {
+				cur = cur->brother;
+				--index;
+			}
+			return cur;
+		}
+
+		const Json* directChildByIndex(size_t index) const {
+			Json* cur = this->child;
+			while (cur && index > 0) {
+				cur = cur->brother;
+				--index;
+			}
+			return cur;
+		}
+
+		void removeDirectChildrenByKey(const string& key) {
+			if (this->type != Type::Object || !this->child)
+				return;
+			Json* prev = nullptr;
+			Json* cur = this->child;
+			while (cur) {
+				if (cur->name == key) {
+					Json* doomed = cur;
+					cur = cur->brother;
+					if (prev)
+						prev->brother = cur;
+					else
+						this->child = cur;
+					doomed->brother = nullptr;
+					deleteJson(doomed);
+					continue;
+				}
+				prev = cur;
+				cur = cur->brother;
+			}
+			this->lastChild = prev;
+			if (!this->child)
+				this->lastChild = nullptr;
+			if (this->keymap) { delete this->keymap; this->keymap = nullptr; }
+		}
+
+		static bool decodePointerToken(const string& token, string& decoded) {
+			decoded.clear();
+			decoded.reserve(token.size());
+			for (size_t i = 0; i < token.size(); ++i) {
+				if (token[i] != '~') {
+					decoded.push_back(token[i]);
+					continue;
+				}
+				if (i + 1 >= token.size())
+					return false;
+				char next = token[++i];
+				if (next == '0') decoded.push_back('~');
+				else if (next == '1') decoded.push_back('/');
+				else return false;
+			}
+			return true;
+		}
+
+		static bool parsePointerIndex(const string& token, size_t& index) {
+			if (token.empty())
+				return false;
+			if (token.size() > 1 && token[0] == '0')
+				return false;
+			size_t value = 0;
+			for (char ch : token) {
+				if (ch < '0' || ch > '9')
+					return false;
+				value = value * 10 + static_cast<size_t>(ch - '0');
+			}
+			index = value;
+			return true;
+		}
+
+		void appendRawValue(const Json* json, string& result) const {
+			switch (json->type) {
+			case Type::String:
+				result.push_back('"');
+				appendEscapedString(json->valueString, result);
+				result.push_back('"');
+				break;
+			case Type::Number:
+				appendNumber(json->valueNumber, result);
+				break;
+			case Type::True:
+				result.append("true");
+				break;
+			case Type::False:
+				result.append("false");
+				break;
+			case Type::Null:
+				result.append("null");
+				break;
+			case Type::Error:
+			case Type::Object:
+			case Type::Array:
+			default:
+				break;
+			}
+		}
+
+		size_t estimateSerializedSize(const Json* json, int indentSize = 0, int depth = 0) const {
+			if (!json)
+				return 0;
+			switch (json->type) {
+			case Type::Error:
+				return 0;
+			case Type::False:
+				return 5;
+			case Type::True:
+				return 4;
+			case Type::Null:
+				return 4;
+			case Type::Number:
+				return 32;
+			case Type::String:
+				return json->valueString.size() + 2;
+			case Type::Object:
+			case Type::Array: {
+				if (!json->child)
+					return 2;
+				size_t total = 2;
+				size_t count = 0;
+				for (Json* cur = json->child; cur; cur = cur->brother) {
+					if (json->type == Type::Object)
+						total += cur->name.size() + 3;
+					total += estimateSerializedSize(cur, indentSize, depth + 1);
+					if (indentSize > 0)
+						total += static_cast<size_t>((depth + 1) * indentSize + 1);
+					++count;
+				}
+				if (count > 0)
+					total += count - 1;
+				if (indentSize > 0)
+					total += static_cast<size_t>(depth * indentSize + 2);
+				return total;
+			}
+			}
+			return 0;
+		}
+
+		void serializePretty(const Json* json, string& result, int indentSize, int depth) const {
+			switch (json->type) {
+			case Type::String:
+			case Type::Number:
+			case Type::True:
+			case Type::False:
+			case Type::Null:
+				appendRawValue(json, result);
+				return;
+			case Type::Error:
+				return;
+			case Type::Object:
+			case Type::Array:
+				break;
+			}
+
+			const bool isObject = json->type == Type::Object;
+			result.push_back(isObject ? '{' : '[');
+			if (!json->child) {
+				result.push_back(isObject ? '}' : ']');
+				return;
+			}
+			result.push_back('\n');
+			for (Json* cur = json->child; cur; cur = cur->brother) {
+				appendIndent(result, indentSize, depth + 1);
+				if (isObject) {
+					appendQuotedKey(cur->name, result);
+					result.push_back(' ');
+				}
+				serializePretty(cur, result, indentSize, depth + 1);
+				if (cur->brother)
+					result.push_back(',');
+				result.push_back('\n');
+			}
+			appendIndent(result, indentSize, depth);
+			result.push_back(isObject ? '}' : ']');
+		}
+
+		bool equalsObject(const Json& other) const {
+			const size_t lhsCount = this->childCount();
+			if (lhsCount != other.childCount())
+				return false;
+			std::vector<const Json*> rhsNodes;
+			rhsNodes.reserve(lhsCount);
+			for (Json* cur = other.child; cur; cur = cur->brother)
+				rhsNodes.push_back(cur);
+			std::vector<bool> matched(rhsNodes.size(), false);
+			for (Json* lhs = this->child; lhs; lhs = lhs->brother) {
+				bool found = false;
+				for (size_t i = 0; i < rhsNodes.size(); ++i) {
+					if (matched[i] || rhsNodes[i]->name != lhs->name)
+						continue;
+					if (*lhs == *rhsNodes[i]) {
+						matched[i] = true;
+						found = true;
+						break;
+					}
+				}
+				if (!found)
+					return false;
+			}
+			return true;
+		}
+
+		bool equalsArray(const Json& other) const {
+			Json* lhs = this->child;
+			Json* rhs = other.child;
+			while (lhs && rhs) {
+				if (!(*lhs == *rhs))
+					return false;
+				lhs = lhs->brother;
+				rhs = rhs->brother;
+			}
+			return lhs == nullptr && rhs == nullptr;
+		}
+
+		static Json parse(const std::string& in, std::string& err, const ParseOptions& options = ParseOptions{})
 		{
-			if (validateUtf8) {
+			if (options.validateUtf8) {
 				size_t errPos = 0;
 				if (!validate_utf8_bytes(in, errPos)) {
 					err = "invalid UTF-8 byte at position " + std::to_string(errPos);
 					return Json(Type::Error);
 				}
 			}
-			JsonParser parser{ in, 0, err, false, allowComments };
+			JsonParser parser{ in, 0, err, false, options.allowComments, options.duplicateKey };
 			Json result = parser.parse_json_pda();
 			if (result.type == Type::Error)
 				return result;
@@ -199,9 +483,9 @@ namespace ZJSON {
 			return result;
 		}
 
-		static Json parse(const char* in, std::string& err, bool allowComments = true, bool validateUtf8 = false) {
+		static Json parse(const char* in, std::string& err, const ParseOptions& options = ParseOptions{}) {
 			if (in) {
-				return parse(std::string(in), err, allowComments, validateUtf8);
+				return parse(std::string(in), err, options);
 			}
 			else {
 				err = "null input";
@@ -264,6 +548,9 @@ namespace ZJSON {
 		}
 
 	public:
+		using iterator = JsonIterator;
+		using const_iterator = JsonConstIterator;
+
 		Json(JsonType type = JsonType::Object) {
 			this->brother = nullptr;
 			this->child = nullptr;
@@ -272,13 +559,17 @@ namespace ZJSON {
 			this->type = (Type)type;
 		}
 
-		template<typename T> Json(const T& value) {
+		template<typename T, typename std::enable_if<std::is_arithmetic<typename std::decay<T>::type>::value && !std::is_same<typename std::decay<T>::type, bool>::value && !std::is_same<typename std::decay<T>::type, float>::value && !std::is_same<typename std::decay<T>::type, double>::value, int>::type = 0> Json(const T& value) {
 			this->brother = nullptr;
 			this->child = nullptr;
 			this->lastChild = nullptr;
 			this->keymap = nullptr;
 			this->valueNumber = value;
 			this->type = Type::Number;
+		}
+
+		template<typename T, typename std::enable_if<!std::is_arithmetic<typename std::decay<T>::type>::value && detail::has_adl_to_json<typename std::decay<T>::type>::value, int>::type = 0> Json(const T& value) : Json(Type::Null) {
+			to_json(*this, value);
 		}
 
 		Json(const float& value) {
@@ -413,12 +704,32 @@ namespace ZJSON {
 			return parse(input, errMsg);
 		}
 
+		static Json ParseJson(const std::string& input, std::string& errMsg, ParseOptions options) {
+			return parse(input, errMsg, options);
+		}
+
 		static Json ParseJsonStrict(const std::string& input, std::string& errMsg) {
-			return parse(input, errMsg, false);
+			ParseOptions options;
+			options.allowComments = false;
+			return parse(input, errMsg, options);
+		}
+
+		static Json ParseJsonStrict(const std::string& input, std::string& errMsg, ParseOptions options) {
+			options.allowComments = false;
+			return parse(input, errMsg, options);
 		}
 
 		static Json ParseJsonStrictUtf8(const std::string& input, std::string& errMsg) {
-			return parse(input, errMsg, false, true);
+			ParseOptions options;
+			options.allowComments = false;
+			options.validateUtf8 = true;
+			return parse(input, errMsg, options);
+		}
+
+		static Json ParseJsonStrictUtf8(const std::string& input, std::string& errMsg, ParseOptions options) {
+			options.allowComments = false;
+			options.validateUtf8 = true;
+			return parse(input, errMsg, options);
 		}
 
 		~Json() {
@@ -678,6 +989,7 @@ namespace ZJSON {
 			}
 			else {
 				string result;
+				result.reserve(estimateSerializedSize(this));
 				if (this->type == Type::Object || this->type == Type::Array) {
 					if (this->child)
 						this->toString(this, result);		//this->toString(this, result, 0, this->type == Type::Object); 
@@ -689,6 +1001,92 @@ namespace ZJSON {
 				return stringEndWith(result, ",") ? result.erase(result.length() - 1) : result;
 			}
 		}
+
+		string toString(int indent) const {
+			if (indent <= 0)
+				return this->toString();
+			if (this->type == Type::Error)
+				return "";
+			string result;
+			result.reserve(estimateSerializedSize(this, indent));
+			serializePretty(this, result, indent, 0);
+			return result;
+		}
+
+		std::ostream& dump(std::ostream& out, int indent = 0) const {
+			out << (indent > 0 ? this->toString(indent) : this->toString());
+			return out;
+		}
+
+		friend std::ostream& operator<<(std::ostream& out, const Json& json) {
+			return json.dump(out);
+		}
+
+		Json at(const string& pointer) const {
+			if (pointer.empty())
+				return *this;
+			if (pointer[0] != '/')
+				return Json(Type::Error);
+			const Json* current = this;
+			size_t start = 1;
+			while (start <= pointer.size()) {
+				size_t slash = pointer.find('/', start);
+				string token = pointer.substr(start, slash == string::npos ? string::npos : slash - start);
+				string decoded;
+				if (!decodePointerToken(token, decoded))
+					return Json(Type::Error);
+				if (current->type == Type::Object) {
+					current = current->directChildByKey(decoded);
+				}
+				else if (current->type == Type::Array) {
+					size_t index = 0;
+					if (!parsePointerIndex(decoded, index))
+						return Json(Type::Error);
+					current = current->directChildByIndex(index);
+				}
+				else {
+					return Json(Type::Error);
+				}
+				if (!current)
+					return Json(Type::Error);
+				if (slash == string::npos)
+					break;
+				start = slash + 1;
+			}
+			return *current;
+		}
+
+		bool operator==(const Json& other) const {
+			if (this->type != other.type)
+				return false;
+			switch (this->type) {
+			case Type::Error:
+			case Type::False:
+			case Type::True:
+			case Type::Null:
+				return true;
+			case Type::Number:
+				return this->valueNumber == other.valueNumber;
+			case Type::String:
+				return this->valueString == other.valueString;
+			case Type::Object:
+				return equalsObject(other);
+			case Type::Array:
+				return equalsArray(other);
+			}
+			return false;
+		}
+
+		bool operator!=(const Json& other) const {
+			return !(*this == other);
+		}
+
+		iterator begin();
+		iterator end();
+		const_iterator begin() const;
+		const_iterator end() const;
+		const_iterator cbegin() const;
+		const_iterator cend() const;
 
 		int toInt() const {
 			return (int)this->toDouble();
@@ -710,6 +1108,13 @@ namespace ZJSON {
 
 		float toFloat() const {
 			return (float)this->toDouble();
+		}
+
+		template<typename T, typename std::enable_if<detail::has_adl_from_json<T>::value, int>::type = 0>
+		T get() const {
+			T value{};
+			from_json(*this, value);
+			return value;
 		}
 
 		bool toBool() const {
@@ -1085,7 +1490,7 @@ namespace ZJSON {
 			Json* cur = child;
 			while (cur) {
 				if (!cur->name.empty())
-					keymap->emplace(cur->name, cur);
+					(*keymap)[cur->name] = cur;
 				cur = cur->brother;
 			}
 		}
@@ -1263,6 +1668,7 @@ namespace ZJSON {
 			string& err;
 			bool failed;
 			bool allowComments;
+			ParseOptions::DuplicateKeyPolicy duplicateKeyPolicy;
 
 			string make_error(string&& msg) const {
 				size_t line = 1, col = 1;
@@ -1539,6 +1945,32 @@ namespace ZJSON {
 				Json root(Type::Error);
 				PState state = PState::VALUE;
 
+				auto attachToParent = [&](Frame& parent, Json* node) -> bool {
+					if (parent.container->type == Type::Object) {
+						const string key = parent.key;
+						if (parent.container->directChildByKey(key)) {
+							switch (duplicateKeyPolicy) {
+							case ParseOptions::DuplicateKeyPolicy::KeepFirst:
+								parent.container->deleteJson(node);
+								state = parent.childDone;
+								parent.key.clear();
+								return true;
+							case ParseOptions::DuplicateKeyPolicy::KeepLast:
+								parent.container->removeDirectChildrenByKey(key);
+								break;
+							case ParseOptions::DuplicateKeyPolicy::Reject:
+								parent.container->deleteJson(node);
+								fail("duplicate key '" + key + "' in object");
+								return false;
+							}
+						}
+						node->name = std::move(parent.key);
+					}
+					parent.container->appendNodeToJson(node);
+					state = parent.childDone;
+					return true;
+				};
+
 				// Close the top-most container and deliver to parent or set root
 				auto closeTop = [&]() -> bool {
 					Json* done = stk.back().container;
@@ -1550,10 +1982,8 @@ namespace ZJSON {
 						return true;
 					}
 					Frame& parent = stk.back();
-					if (parent.container->type == Type::Object)
-						done->name = std::move(parent.key);
-					parent.container->appendNodeToJson(done);
-					state = parent.childDone;
+					if (!attachToParent(parent, done))
+						return true;
 					return false;
 				};
 
@@ -1565,10 +1995,8 @@ namespace ZJSON {
 						return true;
 					}
 					Frame& top = stk.back();
-					if (top.container->type == Type::Object)
-						val->name = std::move(top.key);
-					top.container->appendNodeToJson(val);
-					state = top.childDone;
+					if (!attachToParent(top, val))
+						return true;
 					return false;
 				};
 
@@ -1719,25 +2147,71 @@ namespace ZJSON {
 
 	};
 
+	class JsonEntry {
+		const string* keyPtr;
+		Json* valuePtr;
+	public:
+		JsonEntry() : keyPtr(nullptr), valuePtr(nullptr) {}
+		void reset(Json* ptr) {
+			keyPtr = ptr ? &ptr->name : nullptr;
+			valuePtr = ptr;
+		}
+		const string& key() const {
+			return *keyPtr;
+		}
+		Json& value() const {
+			return *valuePtr;
+		}
+	};
+
+	class JsonConstEntry {
+		const string* keyPtr;
+		const Json* valuePtr;
+	public:
+		JsonConstEntry() : keyPtr(nullptr), valuePtr(nullptr) {}
+		void reset(const Json* ptr) {
+			keyPtr = ptr ? &ptr->name : nullptr;
+			valuePtr = ptr;
+		}
+		const string& key() const {
+			return *keyPtr;
+		}
+		const Json& value() const {
+			return *valuePtr;
+		}
+	};
+
 	class JsonIterator
 	{
 		Json* ptr;
+		mutable JsonEntry entry;
 	public:
 		explicit JsonIterator(const Json& p) {
 			ptr = p.child;
+			entry.reset(ptr);
 		}
 		explicit JsonIterator(Json* p) {
 			ptr = p;
+			entry.reset(ptr);
 		}
-		JsonIterator operator*() const {
-			return *this; 
+		JsonEntry& operator*() const {
+			entry.reset(ptr);
+			return entry;
+		}
+		JsonEntry* operator->() const {
+			entry.reset(ptr);
+			return &entry;
 		}
 		JsonIterator& operator++() {
-			ptr = ptr->brother;
+			if (ptr)
+				ptr = ptr->brother;
+			entry.reset(ptr);
 			return *this;
 		}
-		const JsonIterator operator++(int) {
-			return ++(*this);
+		JsonIterator operator++(int) {
+			JsonIterator copy(*this);
+			++(*this);
+			return copy;
 		}
 		bool operator!=(JsonIterator const& other) const
 		{
@@ -1756,13 +2230,145 @@ namespace ZJSON {
 			return JsonIterator(nullptr);
 		}
 
-		string key() {
-			return ptr->name;
+		string key() const {
+			return ptr ? ptr->name : string();
 		}
 
-		Json value() {
+		Json& value() const {
 			return *ptr;
 		}
 	};
 
+	class JsonConstIterator
+	{
+		const Json* ptr;
+		mutable JsonConstEntry entry;
+	public:
+		explicit JsonConstIterator(const Json& p) {
+			ptr = p.child;
+			entry.reset(ptr);
+		}
+		explicit JsonConstIterator(const Json* p) {
+			ptr = p;
+			entry.reset(ptr);
+		}
+		JsonConstEntry& operator*() const {
+			entry.reset(ptr);
+			return entry;
+		}
+		JsonConstEntry* operator->() const {
+			entry.reset(ptr);
+			return &entry;
+		}
+		JsonConstIterator& operator++() {
+			if (ptr)
+				ptr = ptr->brother;
+			entry.reset(ptr);
+			return *this;
+		}
+		JsonConstIterator operator++(int) {
+			JsonConstIterator copy(*this);
+			++(*this);
+			return copy;
+		}
+		bool operator!=(const JsonConstIterator& other) const {
+			return this->ptr != other.ptr;
+		}
+		bool operator==(const JsonConstIterator& other) const {
+			return this->ptr == other.ptr;
+		}
+		JsonConstIterator begin() const {
+			return *this;
+		}
+		JsonConstIterator end() const {
+			return JsonConstIterator(nullptr);
+		}
+		string key() const {
+			return ptr ? ptr->name : string();
+		}
+		const Json& value() const {
+			return *ptr;
+		}
+	};
+
+	template <size_t I>
+	decltype(auto) get(JsonEntry& entry) {
+		static_assert(I < 2, "JsonEntry index out of bounds");
+		if constexpr (I == 0) return (entry.key());
+		else return (entry.value());
+	}
+
+	template <size_t I>
+	decltype(auto) get(const JsonEntry& entry) {
+		static_assert(I < 2, "JsonEntry index out of bounds");
+		if constexpr (I == 0) return (entry.key());
+		else return (entry.value());
+	}
+
+	template <size_t I>
+	decltype(auto) get(JsonConstEntry& entry) {
+		static_assert(I < 2, "JsonConstEntry index out of bounds");
+		if constexpr (I == 0) return (entry.key());
+		else return (entry.value());
+	}
+
+	template <size_t I>
+	decltype(auto) get(const JsonConstEntry& entry) {
+		static_assert(I < 2, "JsonConstEntry index out of bounds");
+		if constexpr (I == 0) return (entry.key());
+		else return (entry.value());
+	}
+
+	inline Json::iterator Json::begin() {
+		return JsonIterator(this->child);
+	}
+
+	inline Json::iterator Json::end() {
+		return JsonIterator(nullptr);
+	}
+
+	inline Json::const_iterator Json::begin() const {
+		return JsonConstIterator(this->child);
+	}
+
+	inline Json::const_iterator Json::end() const {
+		return JsonConstIterator(nullptr);
+	}
+
+	inline Json::const_iterator Json::cbegin() const {
+		return JsonConstIterator(this->child);
+	}
+
+	inline Json::const_iterator Json::cend() const {
+		return JsonConstIterator(nullptr);
+	}
+
+}
+
+namespace std {
+	template <>
+	struct tuple_size<ZJSON::JsonEntry> : integral_constant<size_t, 2> {};
+
+	template <>
+	struct tuple_element<0, ZJSON::JsonEntry> {
+		using type = const ZJSON::string;
+	};
+
+	template <>
+	struct tuple_element<1, ZJSON::JsonEntry> {
+		using type = ZJSON::Json;
+	};
+
+	template <>
+	struct tuple_size<ZJSON::JsonConstEntry> : integral_constant<size_t, 2> {};
+
+	template <>
+	struct tuple_element<0, ZJSON::JsonConstEntry> {
+		using type = const ZJSON::string;
+	};
+
+	template <>
+	struct tuple_element<1, ZJSON::JsonConstEntry> {
+		using type = const ZJSON::Json;
+	};
 }

@@ -92,11 +92,11 @@ TEST(TestRfcCases, extension_mode_allows_comments) {
     }
 }
 
-TEST(TestRfcCases, duplicate_keys_first_wins_in_lookup) {
+TEST(TestRfcCases, duplicate_keys_keep_last_by_default) {
     std::string err;
     Json j = Json::ParseJsonStrict("{\"a\":1,\"a\":2}", err);
     ASSERT_FALSE(j.isError()) << err;
-    EXPECT_EQ(j["a"].toInt(), 1);
+    EXPECT_EQ(j["a"].toInt(), 2);
 }
 
 TEST(TestRfcCases, stress_parse_stringify_copy_loop) {

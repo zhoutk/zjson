@@ -1,7 +1,25 @@
 #include "gtest/gtest.h"
 #include "../src/zjson.hpp"
+#include <regex>
+#include <sstream>
 
 using namespace ZJSON;
+
+namespace {
+struct UserProfile {
+    std::string name;
+    int age = 0;
+};
+
+void to_json(Json& json, const UserProfile& profile) {
+    json = Json{{"name", profile.name}, {"age", profile.age}};
+}
+
+void from_json(const Json& json, UserProfile& profile) {
+    profile.name = json["name"].toString();
+    profile.age = json["age"].toInt();
+}
+}
 
 TEST(TestSpec, stringify_escape_characters) {
     Json obj;
@@ -127,18 +145,118 @@ TEST(TestSpec, parse_error_reports_position) {
     // Error at col 4: missing colon
     Json r1 = Json::ParseJson("{\"a\" 1}", err);
     EXPECT_TRUE(r1.isError());
-    EXPECT_NE(err.find("line 1"), std::string::npos);
-    EXPECT_NE(err.find("col "), std::string::npos);
+    EXPECT_TRUE(std::regex_search(err, std::regex(R"(line 1, col \d+: .+)") ));
 
     // Error on line 2
     err.clear();
     Json r2 = Json::ParseJson("{\n\"a\":}", err);
     EXPECT_TRUE(r2.isError());
-    EXPECT_NE(err.find("line 2"), std::string::npos);
+    EXPECT_TRUE(std::regex_search(err, std::regex(R"(line 2, col \d+: .+)") ));
 
     // Valid JSON should produce no error
     err.clear();
     Json r3 = Json::ParseJson("{\"a\":1}", err);
     EXPECT_FALSE(r3.isError());
     EXPECT_TRUE(err.empty());
+}
+
+TEST(TestSpec, semantic_equality_and_inequality) {
+    Json lhs{{"a", 1}, {"b", Json(JsonType::Array).add({2, 3})}};
+    Json rhs{{"b", Json(JsonType::Array).add({2, 3})}, {"a", 1}};
+    Json arrayA(JsonType::Array);
+    Json arrayB(JsonType::Array);
+    arrayA.add({1, 2, 3});
+    arrayB.add({3, 2, 1});
+
+    EXPECT_TRUE(lhs == rhs);
+    EXPECT_FALSE(lhs != rhs);
+    EXPECT_FALSE(arrayA == arrayB);
+    EXPECT_TRUE(arrayA != arrayB);
+}
+
+TEST(TestSpec, pretty_print_and_stream_dump) {
+    Json obj;
+    obj.add("a", 1);
+    obj.add("b", Json(JsonType::Array).add({true, "x"}));
+
+    EXPECT_EQ(obj.toString(2), "{\n  \"a\": 1,\n  \"b\": [\n    true,\n    \"x\"\n  ]\n}");
+
+    std::ostringstream compact;
+    compact << obj;
+    EXPECT_EQ(compact.str(), "{\"a\":1,\"b\":[true,\"x\"]}");
+
+    std::ostringstream pretty;
+    obj.dump(pretty, 2);
+    EXPECT_EQ(pretty.str(), obj.toString(2));
+}
+
+TEST(TestSpec, json_pointer_lookup) {
+    Json obj;
+    obj.add("plain", 1);
+    obj.add("a/b", 2);
+    obj.add("m~n", 3);
+    obj.add("arr", Json(JsonType::Array).add({Json({{"deep", 4}}), 5}));
+
+    EXPECT_EQ(obj.at("/plain").toInt(), 1);
+    EXPECT_EQ(obj.at("/a~1b").toInt(), 2);
+    EXPECT_EQ(obj.at("/m~0n").toInt(), 3);
+    EXPECT_EQ(obj.at("/arr/0/deep").toInt(), 4);
+    EXPECT_TRUE(obj.at("/arr/x").isError());
+    EXPECT_TRUE(obj.at("plain").isError());
+}
+
+TEST(TestSpec, iterator_supports_structured_bindings) {
+    Json obj;
+    obj.add("alpha", 1);
+    obj.add("beta", 2);
+
+    std::string keys;
+    int sum = 0;
+    for (auto& [key, value] : obj) {
+        keys += key;
+        sum += value.toInt();
+    }
+
+    const Json& constObj = obj;
+    int constCount = 0;
+    for (const auto& [key, value] : constObj) {
+        EXPECT_FALSE(key.empty());
+        EXPECT_TRUE(value.isNumber());
+        ++constCount;
+    }
+
+    EXPECT_EQ(keys, "alphabeta");
+    EXPECT_EQ(sum, 3);
+    EXPECT_EQ(constCount, 2);
+}
+
+TEST(TestSpec, duplicate_key_policy_is_configurable) {
+    const std::string input = "{\"a\":1,\"a\":2}";
+    std::string err;
+
+    Json keepLast = Json::ParseJsonStrict(input, err);
+    EXPECT_FALSE(keepLast.isError()) << err;
+    EXPECT_EQ(keepLast["a"].toInt(), 2);
+
+    ParseOptions keepFirstOptions;
+    keepFirstOptions.duplicateKey = ParseOptions::DuplicateKeyPolicy::KeepFirst;
+    Json keepFirst = Json::ParseJsonStrict(input, err, keepFirstOptions);
+    EXPECT_FALSE(keepFirst.isError()) << err;
+    EXPECT_EQ(keepFirst["a"].toInt(), 1);
+
+    ParseOptions rejectOptions;
+    rejectOptions.duplicateKey = ParseOptions::DuplicateKeyPolicy::Reject;
+    Json rejected = Json::ParseJsonStrict(input, err, rejectOptions);
+    EXPECT_TRUE(rejected.isError());
+    EXPECT_NE(err.find("duplicate key 'a'"), std::string::npos);
+}
+
+TEST(TestSpec, adl_to_json_from_json_hooks) {
+    UserProfile source{"kevin", 18};
+    Json json = source;
+    UserProfile roundTrip = json.get<UserProfile>();
+
+    EXPECT_EQ(json.toString(), "{\"name\":\"kevin\",\"age\":18}");
+    EXPECT_EQ(roundTrip.name, "kevin");
+    EXPECT_EQ(roundTrip.age, 18);
 }
