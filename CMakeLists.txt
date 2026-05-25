@@ -9,6 +9,60 @@ set(ver_patch ${CMAKE_MATCH_1})
 message("version: ${ver_major}.${ver_minor}.${ver_patch}")
 project(zjson VERSION ${ver_major}.${ver_minor}.${ver_patch})
 
+if(MSVC AND (NOT CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES OR CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES STREQUAL ""))
+    get_filename_component(_zjson_msvc_bin_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    get_filename_component(_zjson_msvc_host_dir "${_zjson_msvc_bin_dir}" DIRECTORY)
+    get_filename_component(_zjson_msvc_bin_root "${_zjson_msvc_host_dir}" DIRECTORY)
+    get_filename_component(_zjson_msvc_root "${_zjson_msvc_bin_root}" DIRECTORY)
+
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(_zjson_msvc_arch x64)
+    else()
+        set(_zjson_msvc_arch x86)
+    endif()
+
+    set(_zjson_msvc_include_dir "${_zjson_msvc_root}/include")
+    set(_zjson_msvc_lib_dir "${_zjson_msvc_root}/lib/${_zjson_msvc_arch}")
+    set(_zjson_winsdk_root "C:/Program Files (x86)/Windows Kits/10")
+    file(GLOB _zjson_winsdk_versions LIST_DIRECTORIES true "${_zjson_winsdk_root}/Include/10.*")
+    list(SORT _zjson_winsdk_versions)
+    list(REVERSE _zjson_winsdk_versions)
+    list(GET _zjson_winsdk_versions 0 _zjson_winsdk_include_root)
+    get_filename_component(_zjson_winsdk_version "${_zjson_winsdk_include_root}" NAME)
+
+    set(_zjson_fallback_include_dirs
+        "${_zjson_msvc_include_dir}"
+        "${_zjson_winsdk_root}/Include/${_zjson_winsdk_version}/ucrt"
+        "${_zjson_winsdk_root}/Include/${_zjson_winsdk_version}/shared"
+        "${_zjson_winsdk_root}/Include/${_zjson_winsdk_version}/um"
+        "${_zjson_winsdk_root}/Include/${_zjson_winsdk_version}/winrt"
+        "${_zjson_winsdk_root}/Include/${_zjson_winsdk_version}/cppwinrt")
+    set(_zjson_fallback_lib_dirs
+        "${_zjson_msvc_lib_dir}"
+        "${_zjson_winsdk_root}/Lib/${_zjson_winsdk_version}/ucrt/${_zjson_msvc_arch}"
+        "${_zjson_winsdk_root}/Lib/${_zjson_winsdk_version}/um/${_zjson_msvc_arch}")
+
+    foreach(_zjson_dir IN LISTS _zjson_fallback_include_dirs)
+        if(EXISTS "${_zjson_dir}")
+            include_directories(SYSTEM "${_zjson_dir}")
+        endif()
+    endforeach()
+
+    foreach(_zjson_dir IN LISTS _zjson_fallback_lib_dirs)
+        if(EXISTS "${_zjson_dir}")
+            link_directories("${_zjson_dir}")
+        endif()
+    endforeach()
+
+    message(STATUS "MSVC implicit include directories missing; using fallback SDK paths")
+endif()
+
+if(MSVC AND CMAKE_AR MATCHES [[(^|[\\/])ar(\.exe)?$]])
+    get_filename_component(_zjson_msvc_bin_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    set(CMAKE_AR "${_zjson_msvc_bin_dir}/lib.exe")
+    message(STATUS "MSVC archiver mismatch detected; using ${CMAKE_AR}")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -18,7 +72,8 @@ option(CMAKE_ZJSON_ENABLE_ASAN "Enable AddressSanitizer for memory bug detection
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 
 if(MSVC)
-	string(APPEND CMAKE_CXX_FLAGS " /Zc:__cplusplus")
+    string(APPEND CMAKE_CXX_FLAGS " /Zc:__cplusplus /utf-8")
+    string(APPEND CMAKE_C_FLAGS " /utf-8")
 	add_compile_options(/wd26451 /wd26812 /wd4305 /wd4244)
 elseif(UNIX)
     set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g -O0")

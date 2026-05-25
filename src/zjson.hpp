@@ -14,6 +14,9 @@
 #include <cstdio>
 #include <iterator>
 #include <unordered_map>
+#include <charconv>
+#include <system_error>
+#include <type_traits>
 
 namespace ZJSON {
 	using std::string;
@@ -23,8 +26,6 @@ namespace ZJSON {
 
 	static const int max_depth = 100;
 	static const std::array<string, 8> TYPENAMES{ "Error", "False", "True", "Null", "Number", "String", "Object", "Array" };
-	static const double MinValue = 0.0000001;
-	static const int DecimalLength = 7;
 
 	static inline bool stringEndWith(const string& str, const string& tail) {
 		if (str.size() < tail.size()) return false;
@@ -37,33 +38,65 @@ namespace ZJSON {
 		Array = 7
 	};
 
-	static void floatToCharStar(double data, char* buffer) {
-		data = std::abs(data);
-		data -= (long long)data;
-		int ct = 0;
-		memset(buffer, '\0', DecimalLength);
-		double minValue = MinValue;
-		bool runOnce = false;
-		while (!(std::abs(data - 1) < minValue || std::abs(data) < minValue) && ct < 6) {
-			runOnce = true;
-			data *= 10;
-			double nextDataVal = data - (int)data;
-			if ((std::abs(nextDataVal - 1) < minValue || std::abs(nextDataVal) < minValue || ct == 5) && data < 9 && nextDataVal > 0.5) {
-				buffer[ct] = data + 49;
-				break;
+	// ----------------------------------------------------------------------
+	// Number → string serialization (RFC 8259 compliant).
+	// Uses std::to_chars (C++17, shortest round-trip) when the implementation
+	// provides the floating-point overload; otherwise falls back to a
+	// locale-independent snprintf with %.17g (which is round-trip safe for
+	// IEEE-754 double precision).
+	// ----------------------------------------------------------------------
+	namespace detail {
+		template <typename T, typename = void>
+		struct has_fp_to_chars : std::false_type {};
+
+		template <typename T>
+		struct has_fp_to_chars<T, std::void_t<decltype(std::to_chars(
+			std::declval<char*>(), std::declval<char*>(), std::declval<T>()))>>
+			: std::true_type {};
+
+		template <typename T>
+		inline void appendDoubleImpl(T v, string& out, std::true_type /*has_to_chars*/) {
+			char buf[64];
+			auto res = std::to_chars(buf, buf + sizeof(buf), v);
+			if (res.ec == std::errc{}) {
+				out.append(buf, static_cast<size_t>(res.ptr - buf));
+			} else {
+				int n = std::snprintf(buf, sizeof(buf), "%.17g", static_cast<double>(v));
+				if (n > 0) out.append(buf, static_cast<size_t>(n));
 			}
-			else
-				buffer[ct] = data + 48;
-			data = nextDataVal;
-			ct++;
-			minValue *= 10;
 		}
-		if (!runOnce) {
-			if (std::abs(data - 1) < minValue)
-				memset(buffer, '9', DecimalLength - 1);
-			else
-				buffer[0] = '0';
+
+		template <typename T>
+		inline void appendDoubleImpl(T v, string& out, std::false_type /*no_fp_to_chars*/) {
+			char buf[64];
+			int n = std::snprintf(buf, sizeof(buf), "%.17g", static_cast<double>(v));
+			if (n > 0) out.append(buf, static_cast<size_t>(n));
 		}
+	}
+
+	// Append a JSON-formatted number. NaN/Inf are written as "null" because
+	// RFC 8259 forbids them; callers that wish to reject earlier may do so.
+	static inline void appendNumber(double v, string& out) {
+		if (!std::isfinite(v)) {
+			out.append("null");
+			return;
+		}
+		// Integer fast-path: exact integer that fits in long long → write %lld.
+		// Preserves a leading '-' for negative zero (e.g. -0.0 → "-0").
+		if (v == std::floor(v) && v >= -1e16 && v <= 1e16) {
+			long long i = static_cast<long long>(v);
+			if (static_cast<double>(i) == v) {
+				char buf[32];
+				if (i == 0 && std::signbit(v)) {
+					out.append("-0");
+				} else {
+					int n = std::snprintf(buf, sizeof(buf), "%lld", i);
+					if (n > 0) out.append(buf, static_cast<size_t>(n));
+				}
+				return;
+			}
+		}
+		detail::appendDoubleImpl(v, out, detail::has_fp_to_chars<double>{});
 	}
 
 	static inline void appendEscapedString(const string& input, string& out) {
@@ -1128,26 +1161,7 @@ namespace ZJSON {
 			else if (json->type == Type::Number) {
 				if (isObj)
 					appendQuotedKey(json->name, result);
-				if (json->valueNumber > LLONG_MAX || json->valueNumber < LLONG_MIN) {
-					char buffer[100];
-					snprintf(buffer, sizeof(buffer), "%e", json->valueNumber);
-					result.append(buffer);
-				}
-				else {
-					long long intValue = (long long)json->valueNumber;
-					if (intValue == 0 && json->valueNumber < 0)
-						result.append("-0");
-					else {
-						char buffer[100];
-						snprintf(buffer, sizeof(buffer), "%lld", intValue);
-						result.append(buffer);
-					}
-					if (std::abs(json->valueNumber - intValue) >= MinValue) {
-						char decimalValue[DecimalLength] = { '\0', '\0', '\0' , '\0' , '\0' , '\0', '\0' };
-						floatToCharStar(json->valueNumber, decimalValue);
-						result.append(".").append(decimalValue);
-					}
-				}
+				appendNumber(json->valueNumber, result);
 				result.append(",");
 			}
 			else if (json->type == Type::True) {

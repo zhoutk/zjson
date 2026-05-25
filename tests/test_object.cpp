@@ -9,7 +9,9 @@ using namespace ZJSON;
 TEST(TestObject, test_object_1) {
 	Json dot;
 	dot.add("l", 0.00059908820549026132);
-	EXPECT_EQ(dot["l"].toString(), "0.000599");
+	// New round-trip-safe serializer prints the shortest representation that
+	// parses back to the exact same double (RFC 8259 + IEEE-754 round-trip).
+	EXPECT_EQ(dot["l"].toString(), "0.0005990882054902613");
 	Json ajson;
 	std::string data = "kevin";
 	float f = 9.012345;
@@ -27,7 +29,8 @@ TEST(TestObject, test_object_1) {
 	ajson.add("school-en", "the 85th.").add("age", 10).add("scores", 95.98);
 	ajson.add("classroom", f).add("index", '6').add("nullkey", nullptr);
 
-	EXPECT_EQ(ajson.toString(), "{\"long\":123,\"longlong\":56789,\"sex\":true,\"name\":\"kevin\",\"school-cn\":\"第八十五中学\",\"subObjct\":{\"first\":\"this is the first.\",\"second obj\":{\"sub2-1\":\"the second sub object.\",\"sub2-2\":\"the second field.\"},\"a number\":666},\"school-en\":\"the 85th.\",\"age\":10,\"scores\":95.98,\"classroom\":9.012345,\"index\":54,\"nullkey\":null}");
+	// `f` is a float — promoting to double round-trips to 9.012345314025879.
+	EXPECT_EQ(ajson.toString(), "{\"long\":123,\"longlong\":56789,\"sex\":true,\"name\":\"kevin\",\"school-cn\":\"第八十五中学\",\"subObjct\":{\"first\":\"this is the first.\",\"second obj\":{\"sub2-1\":\"the second sub object.\",\"sub2-2\":\"the second field.\"},\"a number\":666},\"school-en\":\"the 85th.\",\"age\":10,\"scores\":95.98,\"classroom\":9.012345314025879,\"index\":54,\"nullkey\":null}");
 
 	EXPECT_DOUBLE_EQ(ajson["scores"].toDouble(), 95.98);
 	EXPECT_EQ(ajson["name"].toString(), "kevin");
@@ -153,7 +156,7 @@ TEST(TestObject, test_object_1) {
 
 	Json eObj;
 	eObj.add("eObj1", 1.23456789e39).add("eObj2", -9.87654321E120).add("little", -0.123456);
-	EXPECT_EQ(eObj.toString(), "{\"eObj1\":1.234568e+39,\"eObj2\":-9.876543e+120,\"little\":-0.123456}");
+	EXPECT_EQ(eObj.toString(), "{\"eObj1\":1.23456789e+39,\"eObj2\":-9.87654321e+120,\"little\":-0.123456}");
 	EXPECT_EQ(eObj["eObj1"].toDouble(), 1.23456789e+39);
 	EXPECT_EQ(eObj["eObj2"].toDouble(), -9.87654321E120);
 
@@ -164,7 +167,7 @@ TEST(TestObject, test_object_1) {
 
 	Json littleNumber;
 	littleNumber.add("n1", 0.00070952).add("n2", 2.9999997615814209).add("n3", 0.00000123);
-	EXPECT_EQ(littleNumber["n1"].toString(), "0.000709");
-	EXPECT_EQ(littleNumber["n2"].toString(), "2.999999");
-	EXPECT_EQ(littleNumber["n3"].toString(), "0.000001");
+	EXPECT_EQ(littleNumber["n1"].toString(), "0.00070952");
+	EXPECT_EQ(littleNumber["n2"].toString(), "2.999999761581421");
+	EXPECT_EQ(littleNumber["n3"].toString(), "1.23e-06");
 }

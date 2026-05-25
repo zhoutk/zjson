@@ -1,0 +1,8 @@
+JSONTestSuite conformance report
+================================
+y_ (MUST accept) : 95 / 95
+n_ (MUST reject) : 188 / 188
+i_ (implementation-defined, informational): 30 accepted / 5 rejected  [total 35]
+strict pass rate : 283 / 283  (100%)
+
+Failures:

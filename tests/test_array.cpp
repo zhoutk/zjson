@@ -25,7 +25,9 @@ TEST(TestArray, test_array_1) {
 		.add("index", '6').add("nullkey", nullptr);
 
 	std::cout << ajson.toString();
-	EXPECT_EQ(ajson.toString(), "[0.000001,0,123,56789,true,\"kevin\",\"第八十五中学\",[\"this is the first.\",[\"the second sub object.\",\"the second field.\"],666],\"the 85th.\",10,95.98,9.012345,54,null]");
+	// New round-trip-safe serializer: shortest decimal that re-parses to the
+	// exact same IEEE-754 double, plus accurate float→double conversion.
+	EXPECT_EQ(ajson.toString(), "[9.999e-07,9.999e-08,123,56789,true,\"kevin\",\"第八十五中学\",[\"this is the first.\",[\"the second sub object.\",\"the second field.\"],666],\"the 85th.\",10,95.98,9.012345314025879,54,null]");
 	EXPECT_EQ(ajson[7].toString(), "[\"this is the first.\",[\"the second sub object.\",\"the second field.\"],666]");
 
 	string multi = "[[[[   [[[[[[[[[[   [[[[[\"Not too deep\"]]]]]]]]]]]]]  \t   ]]]   \n]]]";
@@ -38,7 +40,7 @@ TEST(TestArray, test_array_1) {
 
 	string eStr = "[12345.6789e-7,12345.6789e-3,12345.6789e2,12345.6789e8]";
 	Json objeStr(eStr);
-	EXPECT_EQ(objeStr.toString(), "[0.001235,12.345679,1234567.89,1234567890000]");
+	EXPECT_EQ(objeStr.toString(), "[0.00123456789,12.3456789,1234567.89,1234567890000]");
 
 	Json arrForCat(JsonType::Array);
 	EXPECT_EQ(arrForCat.size(), 0);	
@@ -111,7 +113,7 @@ TEST(TestArray, test_array_1) {
 	EXPECT_EQ(arr.toString(), "[\"JSON Test Pattern pass1\",{\"object with 1 member\":[\"array with 1 element\"]},{},[],-42]");
 
 	arr = Json("[12345.6789e-7,12345.6789e-3,12345.6789e2,12345.6789e8]");      /***  only six significant decimals  ***/
-	EXPECT_EQ(arr.toString(), "[0.001235,12.345679,1234567.89,1234567890000]");
+	EXPECT_EQ(arr.toString(), "[0.00123456789,12.3456789,1234567.89,1234567890000]");
 
 	Json obj{ {"number", 1}, {"string", "a string"}, {"sub obj","{\"first\":\"one\",\"second\":\"two\"}"} };
 	arr.clear().add({ 1,nullptr,true,"another string" }).concat(obj);

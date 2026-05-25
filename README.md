@@ -1,4 +1,13 @@
-# ZJSON   &emsp;&emsp;  [中文介绍](README_CN.md)  
+# ZJSON   &emsp;&emsp;  [中文介绍](README_CN.md)
+
+[![JSONTestSuite](https://img.shields.io/badge/JSONTestSuite-283%2F283%20(100%25)-brightgreen)](docs/jsontestsuite_results.txt)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)](https://isocpp.org/)
+[![header-only](https://img.shields.io/badge/header--only-yes-success)](src/zjson.hpp)
+[![license: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+> Conformance verified against the full [`JSONTestSuite`](https://github.com/nst/JSONTestSuite)
+> `test_parsing/` corpus — **95/95** `y_` (must-accept) and **188/188** `n_` (must-reject)
+> cases pass in strict mode. See [`docs/jsontestsuite_results.txt`](docs/jsontestsuite_results.txt).
 
 ## Introduce
 From node.Js back to c++. I especially miss the pleasure of using json in javascript, so try to diy one. I used many libraries, such as: rapidjson, cJson, CJsonObject, drleq cppjson, json11, etc. Zjson's data structure is greatly inspired by cJOSN. The parsing part refers to json11, thanks! Finally, because data storage needs not only to distinguish values, but also to know their types. I choose std:: variant and std:: any which supported by C++17. Finally, the C++ version is fixed at C++17. This library is designed as a single header file, not relying on any other lib than the C++ standard library.
