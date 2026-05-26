@@ -3,7 +3,6 @@
 
 #include <string>
 #include <vector>
-#include <stack>
 #include <iostream>
 #include <algorithm>
 #include <limits.h>
@@ -30,15 +29,9 @@ namespace ZJSON {
 	using std::string_view;
 	using std::move;
 	using std::vector;
-	using std::stack;
 
 	static const int max_depth = 100;
 	static const std::array<string, 8> TYPENAMES{ "Error", "False", "True", "Null", "Number", "String", "Object", "Array" };
-
-	static inline bool stringEndWith(const string& str, const string& tail) {
-		if (str.size() < tail.size()) return false;
-		return str.compare(str.size() - tail.size(), tail.size(), tail) == 0;
-	}
 
 	enum class JsonType
 	{
@@ -283,8 +276,13 @@ namespace ZJSON {
 				if (i == 0 && std::signbit(v)) {
 					out.append("-0");
 				} else {
-					int n = std::snprintf(buf, sizeof(buf), "%lld", i);
-					if (n > 0) out.append(buf, static_cast<size_t>(n));
+					auto res = std::to_chars(buf, buf + sizeof(buf), i);
+					if (res.ec == std::errc{}) {
+						out.append(buf, static_cast<size_t>(res.ptr - buf));
+					} else {
+						int n = std::snprintf(buf, sizeof(buf), "%lld", i);
+						if (n > 0) out.append(buf, static_cast<size_t>(n));
+					}
 				}
 				return;
 			}
@@ -292,33 +290,48 @@ namespace ZJSON {
 		detail::appendDoubleImpl(v, out, detail::has_fp_to_chars<double>{});
 	}
 
+	static inline void appendControlEscape(unsigned char ch, string& out) {
+		static constexpr char hex[] = "0123456789abcdef";
+		char escaped[6] = { '\\', 'u', '0', '0', hex[ch >> 4], hex[ch & 0x0F] };
+		out.append(escaped, sizeof(escaped));
+	}
+
 	static inline void appendEscapedString(string_view input, string& out) {
-		for (unsigned char ch : input) {
+		const char* data = input.data();
+		const size_t length = input.size();
+		size_t chunkStart = 0;
+
+		for (size_t index = 0; index < length; ++index) {
+			const unsigned char ch = static_cast<unsigned char>(data[index]);
+			if (ch >= 0x20 && ch != '"' && ch != '\\')
+				continue;
+
+			if (index > chunkStart)
+				out.append(data + chunkStart, index - chunkStart);
+
 			switch (ch) {
-			case '"': out.append("\\\""); break;
-			case '\\': out.append("\\\\"); break;
-			case '\b': out.append("\\b"); break;
-			case '\f': out.append("\\f"); break;
-			case '\n': out.append("\\n"); break;
-			case '\r': out.append("\\r"); break;
-			case '\t': out.append("\\t"); break;
+			case '"': out.append("\\\"", 2); break;
+			case '\\': out.append("\\\\", 2); break;
+			case '\b': out.append("\\b", 2); break;
+			case '\f': out.append("\\f", 2); break;
+			case '\n': out.append("\\n", 2); break;
+			case '\r': out.append("\\r", 2); break;
+			case '\t': out.append("\\t", 2); break;
 			default:
-				if (ch < 0x20) {
-					char buf[7];
-					snprintf(buf, sizeof(buf), "\\u%04x", ch);
-					out.append(buf);
-				}
-				else {
-					out.push_back(static_cast<char>(ch));
-				}
+				appendControlEscape(ch, out);
+				break;
 			}
+			chunkStart = index + 1;
 		}
+
+		if (chunkStart < length)
+			out.append(data + chunkStart, length - chunkStart);
 	}
 
 	static inline void appendQuotedKey(string_view key, string& out) {
 		out.push_back('"');
 		appendEscapedString(key, out);
-		out.append("\":");
+		out.append("\":", 2);
 	}
 
 	// UTF-8 byte sequence validator (RFC 3629)
@@ -517,19 +530,63 @@ namespace ZJSON {
 				appendNumber(json->valueNumber, result);
 				break;
 			case Type::True:
-				result.append("true");
+				result.append("true", 4);
 				break;
 			case Type::False:
-				result.append("false");
+				result.append("false", 5);
 				break;
 			case Type::Null:
-				result.append("null");
+				result.append("null", 4);
 				break;
 			case Type::Error:
 			case Type::Object:
 			case Type::Array:
 			default:
 				break;
+			}
+		}
+
+		void serializeCompact(const Json* json, string& result) const {
+			if (json->type != Type::Object && json->type != Type::Array) {
+				appendRawValue(json, result);
+				return;
+			}
+
+			struct Frame {
+				const Json* container;
+				Json* next;
+				bool wroteAny;
+			};
+
+			vector<Frame> frames;
+			frames.reserve(32);
+			result.push_back(json->type == Type::Object ? '{' : '[');
+			frames.push_back({ json, json->child, false });
+
+			while (!frames.empty()) {
+				Frame& frame = frames.back();
+				if (!frame.next) {
+					result.push_back(frame.container->type == Type::Object ? '}' : ']');
+					frames.pop_back();
+					continue;
+				}
+
+				Json* cur = frame.next;
+				frame.next = cur->brother;
+				if (frame.wroteAny)
+					result.push_back(',');
+				else
+					frame.wroteAny = true;
+
+				if (frame.container->type == Type::Object)
+					appendQuotedKey(cur->name, result);
+
+				if (cur->type == Type::Object || cur->type == Type::Array) {
+					result.push_back(cur->type == Type::Object ? '{' : '[');
+					frames.push_back({ cur, cur->child, false });
+				} else {
+					appendRawValue(cur, result);
+				}
 			}
 		}
 
@@ -1185,19 +1242,11 @@ namespace ZJSON {
 			if (this->type == Type::String) {
 				return this->valueString;
 			}
-			else {
-				string result;
-				result.reserve(estimateSerializedSize(this));
-				if (this->type == Type::Object || this->type == Type::Array) {
-					if (this->child)
-						this->toString(this, result);		//this->toString(this, result, 0, this->type == Type::Object); 
-					else
-						return this->type == Type::Object ? "{}" : "[]";
-				}
-				else
-					this->valueJsonToString(this, result, false);
-				return stringEndWith(result, ",") ? result.erase(result.length() - 1) : result;
-			}
+
+			string result;
+			result.reserve(estimateSerializedSize(this));
+			serializeCompact(this, result);
+			return result;
 		}
 
 		string toString(int indent) const {
@@ -2048,101 +2097,6 @@ namespace ZJSON {
 					}
 				}
 				return rs;
-			}
-		}
-
-		void valueJsonToString(const Json* json, string& result, bool isObj = true) const {
-			if (json->type == Type::String) {
-				if (isObj)
-					appendQuotedKey(json->name, result);
-				result.push_back('"');
-				appendEscapedString(json->valueString, result);
-				result.append("\",");
-			}
-			else if (json->type == Type::Number) {
-				if (isObj)
-					appendQuotedKey(json->name, result);
-				appendNumber(json->valueNumber, result);
-				result.append(",");
-			}
-			else if (json->type == Type::True) {
-				if (isObj)
-					appendQuotedKey(json->name, result);
-				result.append("true,");
-			}
-			else if (json->type == Type::False) {
-				if (isObj)
-					appendQuotedKey(json->name, result);
-				result.append("false,");
-			}
-			else if (json->type == Type::Null) {
-				if (isObj)
-					appendQuotedKey(json->name, result);
-				result.append("null,");
-			}
-		}
-
-		void toString(const Json* json, string& result) const {
-			stack<Json*> s;
-			bool flag = true;
-			Json* cur = (Json*)json;
-			if (cur) {
-				result.append(cur->type == Type::Object ? "{" : "[");
-				s.push(cur);
-			}
-			else
-				return;
-			cur = cur->child;
-			while (cur || !s.empty()) {
-				if (cur) {
-					if (cur->type == Type::Object || cur->type == Type::Array) {
-						if (!cur->name.empty())
-							appendQuotedKey(cur->name, result);
-						result.append(cur->type == Type::Object ? "{" : "[");
-						if (cur->child == nullptr)
-							result.append(cur->type == Type::Object ? "}," : "],");
-						s.push(cur);
-						cur = cur->child;
-					}
-					else {
-						flag = true;
-						while (cur) {
-							valueJsonToString(cur, result, s.top()->type == Type::Object);
-							cur = cur->brother;
-							if (cur && cur->child) {
-								flag = false;
-								break;
-							}
-						}
-						if (flag && !s.empty()) {
-							if (stringEndWith(result, ",")) {
-								result.insert(result.length() - 1, s.top()->type == Type::Object ? "}" : "]");
-							}
-							else
-								result.append(s.top()->type == Type::Object ? "}," : "],");
-						}
-					}
-				}
-				else if (!s.empty()) {
-					cur = s.top()->brother;
-					s.pop();
-					flag = true;
-					while (cur) {
-						if (cur->type == Type::Object || cur->type == Type::Array) {
-							flag = false;
-							break;
-						}
-						valueJsonToString(cur, result, s.top()->type == Type::Object);
-						cur = cur->brother;
-					}
-					if (flag && !s.empty()) {
-						if (stringEndWith(result, ",")) {
-							result.insert(result.length() - 1, s.top()->type == Type::Object ? "}" : "]");
-						}
-						else
-							result.append(s.top()->type == Type::Object ? "}," : "],");
-					}
-				}
 			}
 		}
 

@@ -186,6 +186,32 @@ TEST(TestSpec, key_escaping_for_nested_objects) {
     EXPECT_EQ(reparsed["key\"with\"quotes"]["val"].toInt(), 42);
 }
 
+TEST(TestSpec, compact_stringify_handles_empty_keys_for_container_values) {
+    std::string err;
+    Json parsed = Json::ParseJsonStrict("{\"\":{},\"arr\":{\"\":[]}}", err);
+    ASSERT_FALSE(parsed.isError()) << err;
+
+    const std::string out = parsed.toString();
+    EXPECT_EQ(out, "{\"\":{},\"arr\":{\"\":[]}}");
+
+    err.clear();
+    Json reparsed = Json::ParseJsonStrict(out, err);
+    ASSERT_FALSE(reparsed.isError()) << err;
+    EXPECT_EQ(reparsed.toString(), out);
+}
+
+TEST(TestSpec, compact_stringify_escapes_generic_control_bytes) {
+    std::string value;
+    value.push_back('a');
+    value.push_back('\x01');
+    value.push_back('\x1f');
+    value.push_back('z');
+
+    Json obj;
+    obj.add("control", value);
+    EXPECT_EQ(obj.toString(), "{\"control\":\"a\\u0001\\u001fz\"}");
+}
+
 TEST(TestSpec, empty_array_subscript_access) {
     Json emptyArr(JsonType::Array);
     EXPECT_TRUE(emptyArr.isEmpty());

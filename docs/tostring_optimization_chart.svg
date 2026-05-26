@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420">
+  <rect width="920" height="420" fill="#ffffff"/>
+  <text x="24" y="34" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#172033">zjson stringify throughput before/after toString optimization</text>
+  <text x="24" y="58" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#5b6472">Windows/MSVC Release, MB/s higher is better. Source CSV: benchmark_before_tostring_optimization.csv and benchmark_after_tostring_optimization.csv</text>
+
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#5b6472">
+    <text x="180" y="86">0</text>
+    <text x="300" y="86">150</text>
+    <text x="420" y="86">300</text>
+    <text x="540" y="86">450</text>
+    <text x="665" y="86">600</text>
+  </g>
+  <g stroke="#d7dce4" stroke-width="1">
+    <line x1="185" y1="96" x2="185" y2="360"/>
+    <line x1="305" y1="96" x2="305" y2="360"/>
+    <line x1="425" y1="96" x2="425" y2="360"/>
+    <line x1="545" y1="96" x2="545" y2="360"/>
+    <line x1="665" y1="96" x2="665" y2="360"/>
+  </g>
+
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#172033">
+    <text x="24" y="122">flat_10KB</text>
+    <rect x="185" y="106" width="292" height="14" fill="#9bb8d9"/>
+    <rect x="185" y="124" width="434" height="14" fill="#1769aa"/>
+    <text x="485" y="118" font-size="12">365.29</text>
+    <text x="627" y="136" font-size="12" font-weight="700">542.28</text>
+
+    <text x="24" y="174">flat_100KB</text>
+    <rect x="185" y="158" width="308" height="14" fill="#9bb8d9"/>
+    <rect x="185" y="176" width="504" height="14" fill="#1769aa"/>
+    <text x="501" y="170" font-size="12">385.19</text>
+    <text x="697" y="188" font-size="12" font-weight="700">630.37</text>
+
+    <text x="24" y="226">mixed_10KB</text>
+    <rect x="185" y="210" width="201" height="14" fill="#9bb8d9"/>
+    <rect x="185" y="228" width="339" height="14" fill="#1769aa"/>
+    <text x="394" y="222" font-size="12">251.06</text>
+    <text x="532" y="240" font-size="12" font-weight="700">423.13</text>
+
+    <text x="24" y="278">mixed_100KB</text>
+    <rect x="185" y="262" width="200" height="14" fill="#9bb8d9"/>
+    <rect x="185" y="280" width="340" height="14" fill="#1769aa"/>
+    <text x="393" y="274" font-size="12">249.53</text>
+    <text x="533" y="292" font-size="12" font-weight="700">424.65</text>
+
+    <text x="24" y="330">mixed_1MB</text>
+    <rect x="185" y="314" width="146" height="14" fill="#9bb8d9"/>
+    <rect x="185" y="332" width="233" height="14" fill="#1769aa"/>
+    <text x="339" y="326" font-size="12">182.52</text>
+    <text x="426" y="344" font-size="12" font-weight="700">291.63</text>
+  </g>
+
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="13">
+    <rect x="24" y="376" width="16" height="10" fill="#9bb8d9"/>
+    <text x="48" y="386" fill="#172033">before</text>
+    <rect x="118" y="376" width="16" height="10" fill="#1769aa"/>
+    <text x="142" y="386" fill="#172033">after</text>
+  </g>
+</svg>

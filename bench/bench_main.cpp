@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <string>
@@ -100,6 +102,7 @@ struct Dataset {
 };
 
 struct BenchResult {
+    std::string category;
     std::string library;
     std::string operation;
     std::string dataset;
@@ -120,18 +123,74 @@ BenchResult run_bench(const std::string& library, const std::string& operation, 
 
     const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     const double mb_s = static_cast<double>(dataset.json.size()) * iters / (ms / 1000.0) / (1024.0 * 1024.0);
-    return { library, operation, dataset.name, dataset.json.size(), iters, ms, mb_s };
+    return { "comparative", library, operation, dataset.name, dataset.json.size(), iters, ms, mb_s };
+}
+
+template <typename Fn>
+BenchResult run_hotspot_bench(const std::string& operation, const Dataset& dataset, int iters, Fn&& fn) {
+    const int warmups = std::min(std::max(iters / 100, 1), 10);
+    for (int i = 0; i < warmups; ++i) fn();
+
+    const auto t0 = Clock::now();
+    for (int i = 0; i < iters; ++i) fn();
+    const auto t1 = Clock::now();
+
+    const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    const double mb_s = static_cast<double>(dataset.json.size()) * iters / (ms / 1000.0) / (1024.0 * 1024.0);
+    return { "zjson_hotspot", "zjson", operation, dataset.name, dataset.json.size(), iters, ms, mb_s };
 }
 
 void print_result(const BenchResult& r) {
     std::cout << std::left << std::setw(11) << r.library
-              << std::setw(10) << r.operation
-              << std::setw(12) << r.dataset
+              << std::setw(16) << r.operation
+              << std::setw(18) << r.dataset
               << " size=" << std::right << std::setw(8) << r.data_bytes
               << " iters=" << std::setw(5) << r.iterations
               << " time=" << std::fixed << std::setprecision(1) << std::setw(9) << r.total_ms << " ms"
               << " throughput=" << std::fixed << std::setprecision(2) << std::setw(9) << r.throughput_mb_s << " MB/s"
               << std::endl;
+}
+
+std::string csv_escape(const std::string& value) {
+    bool quote = false;
+    for (char ch : value) {
+        if (ch == ',' || ch == '"' || ch == '\n' || ch == '\r') {
+            quote = true;
+            break;
+        }
+    }
+    if (!quote)
+        return value;
+
+    std::string escaped;
+    escaped.reserve(value.size() + 2);
+    escaped.push_back('"');
+    for (char ch : value) {
+        if (ch == '"')
+            escaped.push_back('"');
+        escaped.push_back(ch);
+    }
+    escaped.push_back('"');
+    return escaped;
+}
+
+void write_csv(const std::string& path, const std::vector<BenchResult>& results) {
+    if (path.empty())
+        return;
+
+    std::ofstream output(path, std::ios::binary);
+    output << "category,library,operation,dataset,data_bytes,iterations,total_ms,throughput_mb_s\n";
+    output << std::fixed << std::setprecision(6);
+    for (const auto& result : results) {
+        output << csv_escape(result.category) << ','
+               << csv_escape(result.library) << ','
+               << csv_escape(result.operation) << ','
+               << csv_escape(result.dataset) << ','
+               << result.data_bytes << ','
+               << result.iterations << ','
+               << result.total_ms << ','
+               << result.throughput_mb_s << '\n';
+    }
 }
 
 int parse_iters(size_t bytes) {
@@ -162,6 +221,41 @@ void bench_zjson(const std::vector<Dataset>& datasets, std::vector<BenchResult>&
             consume(copy.getValueType().size());
         }));
     }
+}
+
+void bench_zjson_stringify_hotspots(std::vector<BenchResult>& results) {
+    const Dataset cleanString{ "escape_clean_128B", std::string(128, 'a') };
+    const Dataset escapedString{ "escape_mixed_128B", "plain_text_with_quotes_\"_slashes_\\_and_controls_\n_\r_\t_0123456789_plain_text_with_quotes_\"_slashes_\\_and_controls_\n_\r_\t" };
+    const Dataset integerNumber{ "number_integer", std::string(16, '0') };
+    const Dataset floatNumber{ "number_float", std::string(16, '0') };
+
+    results.push_back(run_hotspot_bench("escape_clean", cleanString, 200000, [&] {
+        std::string out;
+        out.reserve(cleanString.json.size() + 8);
+        ZJSON::appendEscapedString(cleanString.json, out);
+        consume(out.size());
+    }));
+
+    results.push_back(run_hotspot_bench("escape_mixed", escapedString, 200000, [&] {
+        std::string out;
+        out.reserve(escapedString.json.size() * 2);
+        ZJSON::appendEscapedString(escapedString.json, out);
+        consume(out.size());
+    }));
+
+    results.push_back(run_hotspot_bench("format_integer", integerNumber, 200000, [&] {
+        std::string out;
+        out.reserve(32);
+        ZJSON::appendNumber(123456789.0, out);
+        consume(out.size());
+    }));
+
+    results.push_back(run_hotspot_bench("format_float", floatNumber, 200000, [&] {
+        std::string out;
+        out.reserve(32);
+        ZJSON::appendNumber(123456.789123, out);
+        consume(out.size());
+    }));
 }
 
 #if ZJSON_BENCH_HAS_NLOHMANN
@@ -229,7 +323,14 @@ void bench_simdjson(const std::vector<Dataset>& datasets, std::vector<BenchResul
 
 } // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
+    std::string csvPath;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--csv") == 0 && i + 1 < argc) {
+            csvPath = argv[++i];
+        }
+    }
+
     std::vector<Dataset> datasets;
     datasets.push_back({ "flat_10KB", gen_flat_object(300) });
     datasets.push_back({ "flat_100KB", gen_flat_object(3000) });
@@ -262,12 +363,28 @@ int main() {
 #endif
 
     std::cout << std::left << std::setw(11) << "library"
-              << std::setw(10) << "operation"
-              << std::setw(12) << "dataset"
+              << std::setw(16) << "operation"
+              << std::setw(18) << "dataset"
               << " size      iters time          throughput" << std::endl;
     for (const auto& result : results) {
         print_result(result);
     }
+
+    std::vector<BenchResult> hotspotResults;
+    bench_zjson_stringify_hotspots(hotspotResults);
+    std::cout << std::endl << "=== zjson stringify hotspot microbench ===" << std::endl;
+    std::cout << std::left << std::setw(11) << "library"
+              << std::setw(16) << "operation"
+              << std::setw(18) << "dataset"
+              << " size      iters time          throughput" << std::endl;
+    for (const auto& result : hotspotResults) {
+        print_result(result);
+    }
+
+    results.insert(results.end(), hotspotResults.begin(), hotspotResults.end());
+    write_csv(csvPath, results);
+    if (!csvPath.empty())
+        std::cout << "csv=" << csvPath << std::endl;
 
     std::cout << "sink=" << g_sink << std::endl;
     return 0;
