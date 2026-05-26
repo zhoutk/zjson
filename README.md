@@ -259,7 +259,7 @@ cd build && cmake --build .
 ---linux & mac
 cd build && make
 
-run zjson or ctest
+run ctest --test-dir out/build/x64-release --output-on-failure
 ```
 
 ## Associated projects
