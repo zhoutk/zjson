@@ -8,6 +8,10 @@
 > Conformance verified against the full [`JSONTestSuite`](https://github.com/nst/JSONTestSuite)
 > `test_parsing/` corpus — **95/95** `y_` (must-accept) and **188/188** `n_` (must-reject)
 > cases pass in strict mode. See [`docs/jsontestsuite_results.txt`](docs/jsontestsuite_results.txt).
+>
+> The bundled [`JSON_checker`](thirds/JSON-c/README) mini-suite is also covered by
+> automated regression tests: **36/36** corpus files under `thirds/JSON-c/test/`
+> pass with the original suite semantics (top-level object/array and 19-level nesting limit).
 
 Recent API additions include `toString(indent)` pretty-printing, semantic `==/!=`, `begin/end/cbegin/cend` iteration with structured bindings, duplicate-key `ParseOptions`, JSON Pointer via `at("/a/b/0")`, JSON Merge Patch / JSON Patch via `mergePatch(...)` and `applyPatch(..., err)`, ADL-based `to_json` / `from_json` hooks, plus internal slab allocation and arena-backed parsed string storage.
 

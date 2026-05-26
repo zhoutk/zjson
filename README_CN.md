@@ -8,6 +8,10 @@
 > 已对照 [`JSONTestSuite`](https://github.com/nst/JSONTestSuite) 全量 `test_parsing/`
 > 用例验证：严格模式下 **95/95** 个 `y_`（必须接受）与 **188/188** 个 `n_`（必须拒绝）全部通过。
 > 详见 [`docs/jsontestsuite_results.txt`](docs/jsontestsuite_results.txt)。
+>
+> 同时已将仓库内置的 [`JSON_checker`](thirds/JSON-c/README) 官方小套件纳入自动回归：
+> `thirds/JSON-c/test/` 下 **36/36** 个样例已通过，按其原始语义验收
+> （顶层必须为 object/array，最大嵌套深度 19）。
 
 近期补齐的 API 包括：`toString(indent)` pretty-print、语义比较 `==/!=`、支持结构化绑定的 `begin/end/cbegin/cend`、重复键 `ParseOptions`、JSON Pointer `at("/a/b/0")`、JSON Merge Patch / JSON Patch（`mergePatch(...)`、`applyPatch(..., err)`）、ADL `to_json` / `from_json` 类型映射钩子，以及内部 slab 节点池和解析字符串 arena 存储。
 
