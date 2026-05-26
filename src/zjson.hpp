@@ -18,9 +18,16 @@
 #include <system_error>
 #include <tuple>
 #include <type_traits>
+#include <memory>
+#include <deque>
+#include <string_view>
+#include <cstddef>
+#include <new>
+#include <utility>
 
 namespace ZJSON {
 	using std::string;
+	using std::string_view;
 	using std::move;
 	using std::vector;
 	using std::stack;
@@ -49,6 +56,175 @@ namespace ZJSON {
 	// IEEE-754 double precision).
 	// ----------------------------------------------------------------------
 	namespace detail {
+		struct StringArena {
+			explicit StringArena(const string& text) : source(std::make_shared<string>(text)) {}
+
+			std::shared_ptr<string> source;
+			std::deque<string> materialized;
+
+			string_view view(size_t offset, size_t length) const {
+				return string_view(source->data() + offset, length);
+			}
+
+			string_view store(string&& value) {
+				materialized.emplace_back(std::move(value));
+				const string& stored = materialized.back();
+				return string_view(stored.data(), stored.size());
+			}
+		};
+
+		class StoredString {
+			mutable string owned;
+			mutable string_view ref;
+			mutable std::shared_ptr<StringArena> arena;
+			mutable bool usingRef;
+
+		public:
+			StoredString() : ref(), usingRef(false) {}
+			StoredString(const char* value) : owned(value ? value : ""), ref(), usingRef(false) {}
+			StoredString(const string& value) : owned(value), ref(), usingRef(false) {}
+			StoredString(string&& value) : owned(std::move(value)), ref(), usingRef(false) {}
+
+			static StoredString fromView(std::shared_ptr<StringArena> owner, string_view value) {
+				StoredString s;
+				s.arena = std::move(owner);
+				s.ref = value;
+				s.usingRef = true;
+				return s;
+			}
+
+			StoredString(const StoredString&) = default;
+			StoredString(StoredString&&) noexcept = default;
+			StoredString& operator=(const StoredString&) = default;
+			StoredString& operator=(StoredString&&) noexcept = default;
+
+			StoredString& operator=(const char* value) {
+				owned = value ? value : "";
+				ref = string_view();
+				arena.reset();
+				usingRef = false;
+				return *this;
+			}
+
+			StoredString& operator=(const string& value) {
+				owned = value;
+				ref = string_view();
+				arena.reset();
+				usingRef = false;
+				return *this;
+			}
+
+			StoredString& operator=(string&& value) {
+				owned = std::move(value);
+				ref = string_view();
+				arena.reset();
+				usingRef = false;
+				return *this;
+			}
+
+			string_view view() const {
+				return usingRef ? ref : string_view(owned.data(), owned.size());
+			}
+
+			string str() const {
+				string_view v = view();
+				if (v.empty())
+					return string();
+				return string(v.data(), v.size());
+			}
+
+			const string& strRef() const {
+				if (usingRef) {
+					if (ref.empty())
+						owned.clear();
+					else
+						owned.assign(ref.data(), ref.size());
+					usingRef = false;
+					ref = string_view();
+					arena.reset();
+				}
+				return owned;
+			}
+
+			bool empty() const { return view().empty(); }
+			size_t size() const { return view().size(); }
+			size_t length() const { return view().size(); }
+			void clear() {
+				owned.clear();
+				ref = string_view();
+				arena.reset();
+				usingRef = false;
+			}
+
+			friend bool operator==(const StoredString& lhs, const StoredString& rhs) { return lhs.view() == rhs.view(); }
+			friend bool operator!=(const StoredString& lhs, const StoredString& rhs) { return !(lhs == rhs); }
+			friend bool operator==(const StoredString& lhs, string_view rhs) { return lhs.view() == rhs; }
+			friend bool operator!=(const StoredString& lhs, string_view rhs) { return !(lhs == rhs); }
+			friend bool operator==(string_view lhs, const StoredString& rhs) { return lhs == rhs.view(); }
+			friend bool operator!=(string_view lhs, const StoredString& rhs) { return !(lhs == rhs); }
+			friend bool operator==(const StoredString& lhs, const string& rhs) { return lhs.view() == string_view(rhs.data(), rhs.size()); }
+			friend bool operator!=(const StoredString& lhs, const string& rhs) { return !(lhs == rhs); }
+			friend bool operator==(const string& lhs, const StoredString& rhs) { return string_view(lhs.data(), lhs.size()) == rhs.view(); }
+			friend bool operator!=(const string& lhs, const StoredString& rhs) { return !(lhs == rhs); }
+			operator string_view() const { return view(); }
+			operator string() const { return str(); }
+		};
+
+		class SlabAllocator {
+			struct FreeNode { FreeNode* next; };
+			static constexpr size_t blocksPerSlab = 1024;
+
+			size_t blockSize = 0;
+			FreeNode* freeList = nullptr;
+			std::vector<void*> slabs;
+
+			void addSlab() {
+				const size_t bytes = blockSize * blocksPerSlab;
+				void* raw = ::operator new(bytes);
+				slabs.push_back(raw);
+				char* cursor = static_cast<char*>(raw);
+				for (size_t i = 0; i < blocksPerSlab; ++i) {
+					auto* node = reinterpret_cast<FreeNode*>(cursor + i * blockSize);
+					node->next = freeList;
+					freeList = node;
+				}
+			}
+
+		public:
+			~SlabAllocator() {
+				for (void* slab : slabs)
+					::operator delete(slab);
+			}
+
+			void* allocate(size_t size) {
+				if (blockSize == 0) {
+					blockSize = std::max(size, sizeof(FreeNode));
+					const size_t alignment = alignof(std::max_align_t);
+					blockSize = ((blockSize + alignment - 1) / alignment) * alignment;
+				}
+				if (size > blockSize)
+					return ::operator new(size);
+				if (!freeList)
+					addSlab();
+				FreeNode* node = freeList;
+				freeList = freeList->next;
+				return node;
+			}
+
+			void deallocate(void* ptr) noexcept {
+				if (!ptr)
+					return;
+				auto* node = static_cast<FreeNode*>(ptr);
+				node->next = freeList;
+				freeList = node;
+			}
+		};
+
+		inline SlabAllocator& jsonNodeAllocator() {
+			static thread_local SlabAllocator allocator;
+			return allocator;
+		}
+
 		template <typename T, typename = void>
 		struct has_fp_to_chars : std::false_type {};
 
@@ -116,7 +292,7 @@ namespace ZJSON {
 		detail::appendDoubleImpl(v, out, detail::has_fp_to_chars<double>{});
 	}
 
-	static inline void appendEscapedString(const string& input, string& out) {
+	static inline void appendEscapedString(string_view input, string& out) {
 		for (unsigned char ch : input) {
 			switch (ch) {
 			case '"': out.append("\\\""); break;
@@ -139,7 +315,7 @@ namespace ZJSON {
 		}
 	}
 
-	static inline void appendQuotedKey(const string& key, string& out) {
+	static inline void appendQuotedKey(string_view key, string& out) {
 		out.push_back('"');
 		appendEscapedString(key, out);
 		out.append("\":");
@@ -213,9 +389,9 @@ namespace ZJSON {
 		Json* lastChild;   // tail of child list — O(1) append
 		mutable std::unordered_map<string, Json*>* keymap;  // lazy O(1) key lookup (Object only)
 		Type type;
-		string valueString;
+		detail::StoredString valueString;
 		double valueNumber;
-		string name;
+		detail::StoredString name;
 
 		static inline void appendIndent(string& out, int indentSize, int depth) {
 			out.append(static_cast<size_t>(indentSize * depth), ' ');
@@ -228,7 +404,7 @@ namespace ZJSON {
 			return count;
 		}
 
-		Json* directChildByKey(const string& key) {
+		Json* directChildByKey(string_view key) {
 			for (Json* cur = this->child; cur; cur = cur->brother) {
 				if (cur->name == key)
 					return cur;
@@ -236,7 +412,7 @@ namespace ZJSON {
 			return nullptr;
 		}
 
-		const Json* directChildByKey(const string& key) const {
+		const Json* directChildByKey(string_view key) const {
 			for (Json* cur = this->child; cur; cur = cur->brother) {
 				if (cur->name == key)
 					return cur;
@@ -262,7 +438,7 @@ namespace ZJSON {
 			return cur;
 		}
 
-		void removeDirectChildrenByKey(const string& key) {
+		void removeDirectChildrenByKey(string_view key) {
 			if (this->type != Type::Object || !this->child)
 				return;
 			Json* prev = nullptr;
@@ -482,7 +658,8 @@ namespace ZJSON {
 					return Json(Type::Error);
 				}
 			}
-			JsonParser parser{ in, 0, err, false, options.allowComments, options.duplicateKey };
+			auto arena = std::make_shared<detail::StringArena>(in);
+			JsonParser parser{ *arena->source, 0, err, false, options.allowComments, options.duplicateKey, arena };
 			Json result = parser.parse_json_pda();
 			if (result.type == Type::Error)
 				return result;
@@ -559,6 +736,18 @@ namespace ZJSON {
 	public:
 		using iterator = JsonIterator;
 		using const_iterator = JsonConstIterator;
+
+		static void* operator new(size_t size) {
+			return detail::jsonNodeAllocator().allocate(size);
+		}
+
+		static void operator delete(void* ptr) noexcept {
+			detail::jsonNodeAllocator().deallocate(ptr);
+		}
+
+		static void operator delete(void* ptr, size_t) noexcept {
+			detail::jsonNodeAllocator().deallocate(ptr);
+		}
 
 		Json(JsonType type = JsonType::Object) {
 			this->brother = nullptr;
@@ -877,7 +1066,7 @@ namespace ZJSON {
 				Json* cur = this->child;
 				while (cur) {
 					if (cur->type != Type::Error && cur->name.length() > 0)
-						rs.push_back(cur->name);
+						rs.push_back(cur->name.str());
 					cur = cur->brother;
 				}
 			}
@@ -1113,14 +1302,14 @@ namespace ZJSON {
 					if (target)
 						target->overwritePreservingLinks(merged, true);
 					else
-						this->add(cur->name, merged);
+						this->add(cur->name.str(), merged);
 					continue;
 				}
 
 				if (target)
 					target->overwritePreservingLinks(*cur, true);
 				else
-					this->add(cur->name, *cur);
+					this->add(cur->name.str(), *cur);
 			}
 			return *this;
 		}
@@ -1450,7 +1639,7 @@ namespace ZJSON {
 			if (this->type == Type::Object && value.type == Type::Object) {
 				Json* cur = value.child;
 				while (cur) {
-					this->remove(cur->name);
+					this->remove(cur->name.str());
 					this->extendItem(cur);
 					cur = cur->brother;
 				}
@@ -1722,26 +1911,27 @@ namespace ZJSON {
 
 	private:
 		void extendItem(Json* cur) {
+			const string childName = cur->name.str();
 			switch (cur->type)
 			{
 			case Type::False:
-				this->add(cur->name, false);
+				this->add(childName, false);
 				break;
 			case Type::True:
-				this->add(cur->name, true);
+				this->add(childName, true);
 				break;
 			case Type::Null:
-				this->add(cur->name, nullptr);
+				this->add(childName, nullptr);
 				break;
 			case Type::Number:
-				this->add(cur->name, cur->valueNumber);
+				this->add(childName, cur->valueNumber);
 				break;
 			case Type::String:
-				this->add(cur->name, cur->valueString);
+				this->add(childName, cur->valueString.str());
 				break;
 			case Type::Object:
 			case Type::Array:
-				this->add(cur->name, *cur);
+				this->add(childName, *cur);
 			default:
 				;
 			}
@@ -1796,7 +1986,7 @@ namespace ZJSON {
 			Json* cur = child;
 			while (cur) {
 				if (!cur->name.empty())
-					(*keymap)[cur->name] = cur;
+					(*keymap)[cur->name.str()] = cur;
 				cur = cur->brother;
 			}
 		}
@@ -1975,6 +2165,7 @@ namespace ZJSON {
 			bool failed;
 			bool allowComments;
 			ParseOptions::DuplicateKeyPolicy duplicateKeyPolicy;
+			std::shared_ptr<detail::StringArena> arena;
 
 			string make_error(string&& msg) const {
 				size_t line = 1, col = 1;
@@ -2220,6 +2411,29 @@ namespace ZJSON {
 				}
 			}
 
+			detail::StoredString parse_stored_string() {
+				size_t start = i;
+				for (size_t pos = i; pos < str.size(); ++pos) {
+					char ch = str[pos];
+					if (ch == '"') {
+						i = pos + 1;
+						return detail::StoredString::fromView(arena, arena->view(start, pos - start));
+					}
+					if (ch == '\\' || in_range(ch, 0, 0x1f)) {
+						i = start;
+						string decoded = parse_string();
+						if (failed)
+							return detail::StoredString();
+						return detail::StoredString::fromView(arena, arena->store(std::move(decoded)));
+					}
+				}
+				i = start;
+				string decoded = parse_string();
+				if (failed)
+					return detail::StoredString();
+				return detail::StoredString::fromView(arena, arena->store(std::move(decoded)));
+			}
+
 			// --------------- Explicit-stack PDA parser ---------------
 			// Replaces the former recursive-descent parse_json(depth).
 			// Uses a heap-allocated stack instead of the call stack,
@@ -2233,9 +2447,14 @@ namespace ZJSON {
 					OBJ_COMMA_OR_END,   // expect ',' or '}'
 					ARR_COMMA_OR_END    // expect ',' or ']'
 				};
+				static constexpr size_t keyIndexThreshold = 16;
 				struct Frame {
 					Json* container;
-					string key;
+					detail::StoredString key;
+					std::array<std::pair<string_view, Json*>, keyIndexThreshold> smallKeyIndex;
+					size_t smallKeyCount;
+					std::unordered_map<string_view, Json*> keyIndex;
+					bool useHashIndex;
 					PState childDone;   // state to resume after delivering a child value
 				};
 
@@ -2253,8 +2472,24 @@ namespace ZJSON {
 
 				auto attachToParent = [&](Frame& parent, Json* node) -> bool {
 					if (parent.container->type == Type::Object) {
-						const string key = parent.key;
-						if (parent.container->directChildByKey(key)) {
+						string_view keyView = parent.key.view();
+						bool foundExisting = false;
+						size_t smallIndex = 0;
+						auto hashExisting = parent.keyIndex.end();
+						if (parent.useHashIndex) {
+							hashExisting = parent.keyIndex.find(keyView);
+							foundExisting = hashExisting != parent.keyIndex.end();
+						} else {
+							for (size_t index = 0; index < parent.smallKeyCount; ++index) {
+								if (parent.smallKeyIndex[index].first == keyView) {
+									foundExisting = true;
+									smallIndex = index;
+									break;
+								}
+							}
+						}
+
+						if (foundExisting) {
 							switch (duplicateKeyPolicy) {
 							case ParseOptions::DuplicateKeyPolicy::KeepFirst:
 								parent.container->deleteJson(node);
@@ -2262,15 +2497,40 @@ namespace ZJSON {
 								parent.key.clear();
 								return true;
 							case ParseOptions::DuplicateKeyPolicy::KeepLast:
-								parent.container->removeDirectChildrenByKey(key);
+								parent.container->removeDirectChildrenByKey(keyView);
 								break;
 							case ParseOptions::DuplicateKeyPolicy::Reject:
 								parent.container->deleteJson(node);
-								fail("duplicate key '" + key + "' in object");
+								{
+									const string key = parent.key;
+									fail("duplicate key '" + key + "' in object");
+								}
 								return false;
 							}
 						}
 						node->name = std::move(parent.key);
+						string_view storedKey = node->name.view();
+						if (parent.useHashIndex) {
+							if (foundExisting)
+								hashExisting->second = node;
+							else
+								parent.keyIndex.emplace(storedKey, node);
+						} else if (foundExisting) {
+							parent.smallKeyIndex[smallIndex] = { storedKey, node };
+						} else {
+							if (parent.smallKeyCount < keyIndexThreshold) {
+								parent.smallKeyIndex[parent.smallKeyCount++] = { storedKey, node };
+							} else {
+								parent.useHashIndex = true;
+								parent.keyIndex.reserve((keyIndexThreshold + 1) * 2);
+								for (size_t index = 0; index < parent.smallKeyCount; ++index) {
+									const auto& entry = parent.smallKeyIndex[index];
+									parent.keyIndex.emplace(entry.first, entry.second);
+								}
+								parent.keyIndex.emplace(storedKey, node);
+								parent.smallKeyCount = 0;
+							}
+						}
 					}
 					parent.container->appendNodeToJson(node);
 					state = parent.childDone;
@@ -2321,7 +2581,7 @@ namespace ZJSON {
 							i++;
 							if (stk.size() > static_cast<size_t>(max_depth))
 								return fail("exceeded maximum nesting depth");
-							stk.push_back({ new Json(Type::Object), {}, PState::OBJ_COMMA_OR_END });
+							stk.push_back({ new Json(Type::Object), detail::StoredString(), {}, 0, {}, false, PState::OBJ_COMMA_OR_END });
 							state = PState::OBJ_KEY_OR_END;
 							break;
 						}
@@ -2330,7 +2590,7 @@ namespace ZJSON {
 							i++;
 							if (stk.size() > static_cast<size_t>(max_depth))
 								return fail("exceeded maximum nesting depth");
-							stk.push_back({ new Json(Type::Array), {}, PState::ARR_COMMA_OR_END });
+							stk.push_back({ new Json(Type::Array), detail::StoredString(), {}, 0, {}, false, PState::ARR_COMMA_OR_END });
 							consume_garbage();
 							if (failed) return Json(Type::Error);
 							if (i < str.size() && str[i] == ']') {
@@ -2345,7 +2605,7 @@ namespace ZJSON {
 						Json* val = nullptr;
 						if (ch == '"') {
 							i++;
-							string s = parse_string();
+							detail::StoredString s = parse_stored_string();
 							if (failed) return Json(Type::Error);
 							val = new Json(Type::String);
 							val->valueString = std::move(s);
@@ -2395,7 +2655,7 @@ namespace ZJSON {
 						if (ch != '"')
 							return fail("expected '\"' in object, got " + esc(ch));
 						i++;
-						stk.back().key = parse_string();
+						stk.back().key = parse_stored_string();
 						if (failed) return Json(Type::Error);
 						state = PState::OBJ_COLON;
 						break;
@@ -2405,7 +2665,7 @@ namespace ZJSON {
 						if (ch != '"')
 							return fail("expected '\"' in object, got " + esc(ch));
 						i++;
-						stk.back().key = parse_string();
+						stk.back().key = parse_stored_string();
 						if (failed) return Json(Type::Error);
 						state = PState::OBJ_COLON;
 						break;
@@ -2454,7 +2714,7 @@ namespace ZJSON {
 	};
 
 	class JsonEntry {
-		const string* keyPtr;
+		const detail::StoredString* keyPtr;
 		Json* valuePtr;
 	public:
 		JsonEntry() : keyPtr(nullptr), valuePtr(nullptr) {}
@@ -2463,7 +2723,7 @@ namespace ZJSON {
 			valuePtr = ptr;
 		}
 		const string& key() const {
-			return *keyPtr;
+			return keyPtr->strRef();
 		}
 		Json& value() const {
 			return *valuePtr;
@@ -2471,7 +2731,7 @@ namespace ZJSON {
 	};
 
 	class JsonConstEntry {
-		const string* keyPtr;
+		const detail::StoredString* keyPtr;
 		const Json* valuePtr;
 	public:
 		JsonConstEntry() : keyPtr(nullptr), valuePtr(nullptr) {}
@@ -2480,7 +2740,7 @@ namespace ZJSON {
 			valuePtr = ptr;
 		}
 		const string& key() const {
-			return *keyPtr;
+			return keyPtr->strRef();
 		}
 		const Json& value() const {
 			return *valuePtr;
@@ -2537,7 +2797,7 @@ namespace ZJSON {
 		}
 
 		string key() const {
-			return ptr ? ptr->name : string();
+			return ptr ? ptr->name.str() : string();
 		}
 
 		Json& value() const {
@@ -2590,7 +2850,7 @@ namespace ZJSON {
 			return JsonConstIterator(nullptr);
 		}
 		string key() const {
-			return ptr ? ptr->name : string();
+			return ptr ? ptr->name.str() : string();
 		}
 		const Json& value() const {
 			return *ptr;

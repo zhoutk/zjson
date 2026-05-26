@@ -9,7 +9,9 @@
 > 用例验证：严格模式下 **95/95** 个 `y_`（必须接受）与 **188/188** 个 `n_`（必须拒绝）全部通过。
 > 详见 [`docs/jsontestsuite_results.txt`](docs/jsontestsuite_results.txt)。
 
-近期补齐的 API 包括：`toString(indent)` pretty-print、语义比较 `==/!=`、支持结构化绑定的 `begin/end/cbegin/cend`、重复键 `ParseOptions`、JSON Pointer `at("/a/b/0")`、JSON Merge Patch / JSON Patch（`mergePatch(...)`、`applyPatch(..., err)`），以及 ADL `to_json` / `from_json` 类型映射钩子。
+近期补齐的 API 包括：`toString(indent)` pretty-print、语义比较 `==/!=`、支持结构化绑定的 `begin/end/cbegin/cend`、重复键 `ParseOptions`、JSON Pointer `at("/a/b/0")`、JSON Merge Patch / JSON Patch（`mergePatch(...)`、`applyPatch(..., err)`）、ADL `to_json` / `from_json` 类型映射钩子，以及内部 slab 节点池和解析字符串 arena 存储。
+
+当前基于 Windows/MSVC Release 的 zjson 与 nlohmann/json、RapidJSON、simdjson 对照 benchmark 报告见 [`docs/性能测试报告.md`](docs/性能测试报告.md)。
 
 ## 介绍
 从node.js转到c++，特别怀念在js中使用json那种畅快感。在c++中也使用过了些库，但提供的接口使用方式，总不是习惯，很烦锁，接口函数太多，不直观。参考了很多库，如：rapidjson, cJson, CJsonObject, drleq-cppjson, json11等。数据结构受cJOSN启发很大，解析部分借鉴了json11，向他们致敬。最后因为数据存储需要不区分型别，又要能知道其型别，所以选择了C++17才支持的std::variant以及std::any，最终，C++版本定格在c++17，本库设计为单头文件，且不依赖c++标准库以外的任何库。
@@ -56,9 +58,9 @@
 - [x] removeFirst removeLast remove(for array)
 - [x] slice
 - [x] takes take
-- [ ] 递归版性能测试与对比
-- [ ] 算法非递归化
-- [ ] 再次性能测试与对比
+- [x] 性能测试与对照 harness
+- [x] 非递归算法
+- [x] 节点池与解析字符串 arena 存储
   
 ## 数据结构
 

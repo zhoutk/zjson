@@ -47,7 +47,10 @@
                 "value": "x64",
                 "strategy": "external"
             },
-            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_ZJSON_BENCH_FETCH_THIRD_PARTY": "ON"
+            }
         }
     ]
 }

@@ -150,11 +150,48 @@ endif()
 
 ##--------------------- Benchmark -------------------------------------------##
 option(CMAKE_ZJSON_ENABLE_BENCH "Whether to build benchmark" ON)
+option(CMAKE_ZJSON_BENCH_FETCH_THIRD_PARTY "Fetch nlohmann/json, RapidJSON, and simdjson for comparative benchmarks" ON)
 if (CMAKE_ZJSON_ENABLE_BENCH)
     add_executable(bench_zjson bench/bench_main.cpp)
     if(MSVC)
         target_compile_options(bench_zjson PRIVATE $<$<CONFIG:Release>:/O2>)
     else()
         target_compile_options(bench_zjson PRIVATE $<$<CONFIG:Release>:-O2>)
+    endif()
+
+    if(CMAKE_ZJSON_BENCH_FETCH_THIRD_PARTY)
+        include(FetchContent)
+
+        set(JSON_BuildTests OFF CACHE INTERNAL "")
+        FetchContent_Declare(
+            nlohmann_json
+            URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+        FetchContent_MakeAvailable(nlohmann_json)
+        target_link_libraries(bench_zjson PRIVATE nlohmann_json::nlohmann_json)
+        target_compile_definitions(bench_zjson PRIVATE ZJSON_BENCH_HAS_NLOHMANN=1)
+
+        FetchContent_Declare(
+            rapidjson
+            GIT_REPOSITORY https://github.com/Tencent/rapidjson.git
+            GIT_TAG v1.1.0)
+        FetchContent_GetProperties(rapidjson)
+        if(NOT rapidjson_POPULATED)
+            FetchContent_Populate(rapidjson)
+        endif()
+        target_include_directories(bench_zjson PRIVATE "${rapidjson_SOURCE_DIR}/include")
+        target_compile_definitions(bench_zjson PRIVATE ZJSON_BENCH_HAS_RAPIDJSON=1)
+
+        set(SIMDJSON_BUILD_STATIC ON CACHE BOOL "" FORCE)
+        set(SIMDJSON_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(SIMDJSON_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+        set(SIMDJSON_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        FetchContent_Declare(
+            simdjson
+            GIT_REPOSITORY https://github.com/simdjson/simdjson.git
+            GIT_TAG v3.10.1)
+        FetchContent_MakeAvailable(simdjson)
+        target_link_libraries(bench_zjson PRIVATE simdjson::simdjson)
+        target_compile_definitions(bench_zjson PRIVATE ZJSON_BENCH_HAS_SIMDJSON=1)
     endif()
 endif()

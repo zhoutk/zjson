@@ -9,7 +9,9 @@
 > `test_parsing/` corpus — **95/95** `y_` (must-accept) and **188/188** `n_` (must-reject)
 > cases pass in strict mode. See [`docs/jsontestsuite_results.txt`](docs/jsontestsuite_results.txt).
 
-Recent API additions include `toString(indent)` pretty-printing, semantic `==/!=`, `begin/end/cbegin/cend` iteration with structured bindings, duplicate-key `ParseOptions`, JSON Pointer via `at("/a/b/0")`, JSON Merge Patch / JSON Patch via `mergePatch(...)` and `applyPatch(..., err)`, and ADL-based `to_json` / `from_json` hooks.
+Recent API additions include `toString(indent)` pretty-printing, semantic `==/!=`, `begin/end/cbegin/cend` iteration with structured bindings, duplicate-key `ParseOptions`, JSON Pointer via `at("/a/b/0")`, JSON Merge Patch / JSON Patch via `mergePatch(...)` and `applyPatch(..., err)`, ADL-based `to_json` / `from_json` hooks, plus internal slab allocation and arena-backed parsed string storage.
+
+The current Windows/MSVC Release benchmark report comparing zjson with nlohmann/json, RapidJSON, and simdjson is available in [`docs/性能测试报告.md`](docs/性能测试报告.md).
 
 ## Introduce
 From node.Js back to c++. I especially miss the pleasure of using json in javascript, so try to diy one. I used many libraries, such as: rapidjson, cJson, CJsonObject, drleq cppjson, json11, etc. Zjson's data structure is greatly inspired by cJOSN. The parsing part refers to json11, thanks! Finally, because data storage needs not only to distinguish values, but also to know their types. I choose std:: variant and std:: any which supported by C++17. Finally, the C++ version is fixed at C++17. This library is designed as a single header file, not relying on any other lib than the C++ standard library.
@@ -52,9 +54,9 @@ task list：
 - [x] removeFirst removeLast remove(for array)
 - [x] slice
 - [x] takes take
-- [ ] performance test and comparison for recursive version
-- [ ] algorithm non recursion
-- [ ] performance test and comparison again
+- [x] performance test and comparison harness
+- [x] algorithm non recursion
+- [x] slab allocator and parsed string arena
   
 ## Data structure
 
@@ -208,7 +210,7 @@ The following table documents zjson's behavior on inputs where the JSON specific
 
 | Behavior | zjson | Notes |
 |---|---|---|
-| **Duplicate object keys** | First-wins | `operator[]` returns the first occurrence; `keymap` uses `emplace()` |
+| **Duplicate object keys** | Configurable; default keep-last | `ParseOptions::DuplicateKeyPolicy` supports `KeepFirst`, `KeepLast`, and `Reject` |
 | **Number precision** | IEEE 754 `double` | Parsed via `strtod`; integers that fit in `int` use `atoi` fast path |
 | **Very large numbers** | `±Infinity` | `strtod` result; no error |
 | **Very small numbers** | `0.0` or denormal | `strtod` result; no error |

@@ -74,6 +74,78 @@ TEST(TestSpec, copy_and_move_assignment_safety) {
     EXPECT_EQ(moved.toString(), "{\"k1\":1,\"k2\":[1,2,3]}");
 }
 
+TEST(TestSpec, parsed_string_storage_survives_source_lifetime) {
+    Json parsed;
+    {
+        std::string input = "{\"plain\":\"alpha\",\"escaped\":\"line\\nquote\\\"\",\"arr\":[\"beta\"],\"a/b~c\":7}";
+        std::string err;
+        parsed = Json::ParseJsonStrict(input, err);
+        ASSERT_FALSE(parsed.isError()) << err;
+        input.assign(input.size(), 'x');
+    }
+
+    EXPECT_EQ(parsed["plain"].toString(), "alpha");
+    EXPECT_EQ(parsed["escaped"].toString(), "line\nquote\"");
+    EXPECT_EQ(parsed["arr"][0].toString(), "beta");
+    EXPECT_EQ(parsed["a/b~c"].toInt(), 7);
+
+    Json copied = parsed;
+    Json moved = std::move(copied);
+    EXPECT_EQ(moved["plain"].toString(), "alpha");
+    EXPECT_EQ(moved["escaped"].toString(), "line\nquote\"");
+    EXPECT_EQ(moved.toString(), "{\"plain\":\"alpha\",\"escaped\":\"line\\nquote\\\"\",\"arr\":[\"beta\"],\"a/b~c\":7}");
+}
+
+TEST(TestSpec, escaped_string_storage_remains_stable_under_many_values) {
+    std::string input = "{\"items\":[";
+    for (int i = 0; i < 300; ++i) {
+        if (i > 0) input.push_back(',');
+        input += "\"item_" + std::to_string(i) + "\\nvalue\"";
+    }
+    input += "]}";
+
+    std::string err;
+    Json parsed = Json::ParseJsonStrict(input, err);
+    ASSERT_FALSE(parsed.isError()) << err;
+    EXPECT_EQ(parsed["items"][0].toString(), "item_0\nvalue");
+    EXPECT_EQ(parsed["items"][299].toString(), "item_299\nvalue");
+}
+
+TEST(TestSpec, parsed_storage_supports_mutation_after_parse) {
+    Json parsed("{\"keep\":\"source\",\"remove\":1,\"items\":[\"a\",\"b\"]}");
+    ASSERT_TRUE(parsed.isObject());
+
+    parsed.remove("remove");
+    parsed.add("added", "value");
+
+    Json patch{{"keep", "patched"}, {"added", nullptr}, {"nested", Json{{"x", "y"}}}};
+    parsed.mergePatch(patch);
+
+    EXPECT_EQ(parsed["keep"].toString(), "patched");
+    EXPECT_FALSE(parsed.contains("added"));
+    EXPECT_EQ(parsed["nested"]["x"].toString(), "y");
+    EXPECT_EQ(parsed.toString(), "{\"keep\":\"patched\",\"items\":[\"a\",\"b\"],\"nested\":{\"x\":\"y\"}}");
+}
+
+TEST(TestSpec, node_pool_handles_repeated_tree_create_copy_clear) {
+    for (int round = 0; round < 200; ++round) {
+        Json root;
+        Json items(JsonType::Array);
+        for (int i = 0; i < 200; ++i) {
+            items.add(Json{{"id", i}, {"name", "item_" + std::to_string(i)}, {"active", i % 2 == 0}});
+        }
+        root.add("items", items);
+        root.add("round", round);
+
+        Json copied = root;
+        EXPECT_EQ(copied["round"].toInt(), round);
+        EXPECT_EQ(copied["items"][199]["name"].toString(), "item_199");
+
+        copied.clear();
+        EXPECT_EQ(copied.toString(), "{}");
+    }
+}
+
 TEST(TestSpec, key_name_escaping) {
     // Keys containing special characters must be escaped in JSON output
     Json obj;
