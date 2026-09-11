@@ -21,6 +21,7 @@
 #include <deque>
 #include <string_view>
 #include <cstddef>
+#include <mutex>
 #include <new>
 #include <utility>
 
@@ -167,6 +168,7 @@ namespace ZJSON {
 			struct FreeNode { FreeNode* next; };
 			static constexpr size_t blocksPerSlab = 1024;
 
+			std::mutex mutex_;
 			size_t blockSize = 0;
 			FreeNode* freeList = nullptr;
 			std::vector<void*> slabs;
@@ -184,12 +186,8 @@ namespace ZJSON {
 			}
 
 		public:
-			~SlabAllocator() {
-				for (void* slab : slabs)
-					::operator delete(slab);
-			}
-
 			void* allocate(size_t size) {
+				std::lock_guard<std::mutex> guard(mutex_);
 				if (blockSize == 0) {
 					blockSize = std::max(size, sizeof(FreeNode));
 					const size_t alignment = alignof(std::max_align_t);
@@ -207,15 +205,23 @@ namespace ZJSON {
 			void deallocate(void* ptr) noexcept {
 				if (!ptr)
 					return;
+				std::lock_guard<std::mutex> guard(mutex_);
 				auto* node = static_cast<FreeNode*>(ptr);
 				node->next = freeList;
 				freeList = node;
 			}
 		};
 
+		// NOTE: the node pool is deliberately process-lifetime (never destroyed) and
+		// shared by all threads of the module.  Json nodes may be freed on a
+		// different thread - or inside a different shared library, since this header
+		// is inlined into every module - than the one that allocated them.  A
+		// thread_local pool destroyed at thread exit would release slabs still
+		// referenced by other threads' Json objects (use-after-free), so the pool is
+		// leaked on purpose: parked blocks always point at live memory.
 		inline SlabAllocator& jsonNodeAllocator() {
-			static thread_local SlabAllocator allocator;
-			return allocator;
+			static SlabAllocator* allocator = new SlabAllocator();
+			return *allocator;
 		}
 
 		template <typename T, typename = void>
