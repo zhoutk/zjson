@@ -152,8 +152,10 @@ if (CMAKE_ZJSON_ENABLE_TEST)
 
     # Full-surface coverage suites: every public API entry point and every
     # documented edge case of the parser / serializer.
+    find_package(Threads REQUIRED)
+
     add_executable(test_api_coverage tests/test_api_coverage.cpp)
-    target_link_libraries(test_api_coverage gtest gtest_main)
+    target_link_libraries(test_api_coverage gtest gtest_main Threads::Threads)
     add_test(NAME test_api_coverage COMMAND test_api_coverage)
 
     add_executable(test_parse_coverage tests/test_parse_coverage.cpp)

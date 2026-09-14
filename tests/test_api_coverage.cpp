@@ -32,6 +32,7 @@
 #include <new>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -1639,4 +1640,107 @@ TEST(TestApiCoverage, document_lifecycle_allocations_reach_steady_state) {
 
 	EXPECT_GT(first, 0u) << "the workload should allocate";
 	EXPECT_EQ(first, second) << "allocation count must be stable once warmed up";
+}
+
+// ---------------------------------------------------------------------------
+// Cross-thread ownership. The node pool is process-lifetime and shared by the
+// threads of the module, so a document may be built on one thread and destroyed
+// on another - even after the building thread has exited. Before the pool became
+// process-lifetime (thread_local pool + destructor) this sequence was a
+// use-after-free: the thread's exit released its slabs while the document and the
+// blocks parked in other threads' free lists still pointed at them.
+// ---------------------------------------------------------------------------
+
+TEST(TestApiCoverage, document_survives_owner_thread_exit_and_is_freed_elsewhere) {
+	Json document;
+	std::thread producer([&document]() {
+		Json local;
+		for (int i = 0; i < 500; ++i)
+			local.add("k" + std::to_string(i), Json{ {"a", i}, {"b", std::string(32, 'x')} });
+		local["k0"];                      // materialize the key index
+		document = std::move(local);      // hand the document to this thread, then exit
+	});
+	producer.join();                      // thread exit must not invalidate the document
+
+	// Reading (and later freeing) nodes that were allocated on the exited thread.
+	EXPECT_EQ(document["k499"]["a"].toInt(), 499);
+	EXPECT_EQ(document["k499"]["b"].toString(), std::string(32, 'x'));
+	EXPECT_FALSE(document.toString().empty());
+	EXPECT_TRUE(document.contains("k250"));
+
+	// Freeing everything back into the shared pool, then reusing those blocks for
+	// brand new nodes: recycled blocks must point at live memory.
+	document.clear();
+	EXPECT_EQ(document.toString(), "{}");
+
+	Json fresh;
+	for (int i = 0; i < 500; ++i)
+		fresh.add("f" + std::to_string(i), i);
+	EXPECT_EQ(fresh["f499"].toInt(), 499);
+	EXPECT_EQ(fresh.getAllKeys().size(), 500);
+}
+
+TEST(TestApiCoverage, concurrent_allocation_and_deallocation_stays_consistent) {
+	const int threadCount = 4;
+	std::vector<Json> documents(static_cast<size_t>(threadCount));
+	std::vector<std::thread> workers;
+	workers.reserve(static_cast<size_t>(threadCount));
+
+	for (int t = 0; t < threadCount; ++t) {
+		workers.emplace_back([&documents, t]() {
+			Json doc;
+			for (int i = 0; i < 200; ++i)
+				doc.add("k" + std::to_string(i), Json{ {"thread", t}, {"index", i} });
+			doc["k199"];                  // build the key index
+			documents[static_cast<size_t>(t)] = std::move(doc);
+		});
+	}
+	for (std::thread& worker : workers)
+		worker.join();
+
+	for (int t = 0; t < threadCount; ++t) {
+		const Json& doc = documents[static_cast<size_t>(t)];
+		EXPECT_EQ(doc["k199"]["thread"].toInt(), t);
+		EXPECT_EQ(doc["k199"]["index"].toInt(), 199);
+		EXPECT_EQ(doc.getAllKeys().size(), 200);
+	}
+
+	// Deallocation happens on this thread for nodes built all over the place.
+	for (Json& doc : documents)
+		doc.clear();
+	for (const Json& doc : documents)
+		EXPECT_EQ(doc.toString(), "{}");
+}
+
+TEST(TestApiCoverage, document_can_be_mutated_on_another_thread_than_it_was_built) {
+	// Ownership may cross thread boundaries more than once: nodes allocated on the
+	// producer thread are unlinked, re-linked and finally released on other threads,
+	// so the shared pool must keep handing back live blocks in both directions.
+	Json document;
+	std::thread producer([&document]() {
+		Json local;
+		for (int i = 0; i < 300; ++i)
+			local.add("k" + std::to_string(i), Json{ {"i", i} });
+		document = std::move(local);
+	});
+	producer.join();
+
+	Json consumer;
+	std::thread worker([&document, &consumer]() {
+		document.remove("k0");                 // frees nodes that live in the producer's slabs
+		document.add("added", true);
+		document.add("nested", Json{ {"deep", Json(JsonType::Array).add({1, 2, 3})} });
+		EXPECT_EQ(document["k299"]["i"].toInt(), 299);
+		consumer = std::move(document);        // hand the document on once more
+	});
+	worker.join();
+
+	EXPECT_FALSE(consumer.contains("k0"));
+	EXPECT_TRUE(consumer["added"].isTrue());
+	EXPECT_EQ(consumer["nested"]["deep"][2].toInt(), 3);
+	EXPECT_EQ(consumer["k299"]["i"].toInt(), 299);
+
+	// Final release on yet another owner (this thread).
+	consumer.clear();
+	EXPECT_EQ(consumer.toString(), "{}");
 }
