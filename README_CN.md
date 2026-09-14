@@ -138,6 +138,34 @@ enum class JsonType
 - string getValueType()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取值类型字符串表示
 - Json getAndRemove(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取并删除
 - std::vector<std::string> getAllKeys()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取所有key
+
+新增接口（2026-09-14）
+
+- const Json& atRef(string_view pointer)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//按 RFC 6901 指针取引用，不产生拷贝（失败返回错哨兵）
+- Json* findPtr(string_view key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//取成员的可变指针（先直层，再深搜）
+- Json* findPtrAt(string_view pointer)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//按指针取可变指针（不存在返回 nullptr）
+- bool setAt(string pointer, const Json& value[, string& err])&emsp;//按指针写入（RFC 6902 "add" 语义；失败时文档不变）
+- template&lt;typename T&gt; bool try_get(const string& key, T& out)&emsp;//不抛异常的取值，仅成功时写目标
+- std::optional&lt;int/double/string&gt; try_int/try_double/try_string(const string& key)
+- static Json array(std::initializer_list&lt;Json&gt; values)&emsp;&emsp;&emsp;&emsp;//构造数组，避免 `Json{...}` 歧义
+- std::ostream& dumpTo(std::ostream& out, int indent = 0)&emsp;&emsp;&emsp;//直接写流，不先拼整串
+- static Json ParseJson(std::string&& input, std::string& errMsg)&emsp;//接管输入缓冲，不再复制文档文本
+
+需要知道的语义
+
+- `operator[]` 返回**副本**（容器成员会深拷贝子树）；需要就地读写请用 `findPtr`/`findPtrAt`/`atRef`。
+- 键不是直层成员时的深搜回退返回**文档序第一个匹配**（先序）。
+- 解析限深 **101 层**；`cloneChain`/`deleteJson`/美化打印/比较均已迭代化，因此通过 API 自建的 20000 层文档可以安全拷贝、打印、比较与销毁。
+- 相等性把成员当**多重集**：重复键必须数量与取值配对一致（解析本身会合并重复键，默认保留最后一个）。
+- 结构化绑定依赖 ADL `get` + `std::tuple_size`/`std::tuple_element`；**刻意不提供** `std::get<N>(entry)`（为自己的类型向 `namespace std` 加重载是 UB）。
+
+## 线程与内存契约
+
+1. **节点分配/释放线程安全**：每个线程拥有自己的 slab 池且永不释放，所以「A 线程分配、B 线程释放」（甚至 A 线程已退出）都安全，且无锁。
+2. **同一棵树不支持并发读写**：惰性 key 索引与惰性字符串物化会写 `mutable` 状态；跨线程共享文档时请确保无人修改（优先传副本或转移所有权）。
+3. **池驻留按线程计算且设计上不回收**：每个线程保留其用过的 slab（实测：64 个短命线程各自解析 4 万节点，进程永久增长 ≈440MB）。请复用工作线程，不要「每请求一线程」。
+4. **跨模块所有权不保证安全**：header 会被内联进每个模块，跨 DLL 传递并在模块卸载后析构的文档不安全。
+5. 深文档的拷贝/打印/比较/销毁是安全的（迭代化），但解析仍然拒绝超过 101 层的嵌套。
     
 ## 编程示例
 简单使用示例

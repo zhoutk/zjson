@@ -431,6 +431,13 @@ int main(int argc, char* argv[]) {
     std::cout << std::endl;
 
     std::vector<BenchResult> results;
+
+    // Node pool cost is measured FIRST: it is sensitive to machine state, and running it
+    // after the comparative/hotspot sections made its numbers depend on what those
+    // sections had done to the caches (the same code measured 25 ns/node on its own and
+    // 35 ns/node when timed last).
+    bench_zjson_pool_cost(datasets, results);
+
     bench_zjson(datasets, results);
 #if ZJSON_BENCH_HAS_NLOHMANN
     bench_nlohmann(datasets, results);
@@ -462,10 +469,6 @@ int main(int argc, char* argv[]) {
     }
 
     results.insert(results.end(), hotspotResults.begin(), hotspotResults.end());
-
-    // Node pool cost (single-thread churn + concurrency scaling); pushes rows under
-    // the "zjson_pool" category and prints its own diagnostics table.
-    bench_zjson_pool_cost(datasets, results);
 
     write_csv(csvPath, results);
     if (!csvPath.empty())

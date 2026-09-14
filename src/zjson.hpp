@@ -26,6 +26,7 @@
 #include <cstdlib>
 #include <limits>
 #include <new>
+#include <optional>
 #include <utility>
 
 // ---------------------------------------------------------------------------
@@ -79,20 +80,38 @@ namespace ZJSON {
 	// IEEE-754 double precision).
 	// ----------------------------------------------------------------------
 	namespace detail {
+		// Text that a parsed document refers to.  `source` owns the raw input (whether
+		// copied or moved in) and `materialized` holds the strings that had to be
+		// decoded (escapes) - those live in chunked bump storage, so materialising N
+		// strings costs one allocation per 4 KB chunk instead of one per string.
 		struct StringArena {
-			explicit StringArena(const string& text) : source(std::make_shared<string>(text)) {}
+			explicit StringArena(string text) : source(std::make_shared<string>(std::move(text))) {}
+
+			static constexpr size_t chunkSize = 4096;
 
 			std::shared_ptr<string> source;
-			std::deque<string> materialized;
+			std::vector<std::unique_ptr<char[]>> chunks;
+			std::vector<size_t> chunkCapacity;
+			size_t used = 0;
 
 			string_view view(size_t offset, size_t length) const {
 				return string_view(source->data() + offset, length);
 			}
 
 			string_view store(string&& value) {
-				materialized.emplace_back(std::move(value));
-				const string& stored = materialized.back();
-				return string_view(stored.data(), stored.size());
+				const size_t need = value.size();
+				if (need == 0)
+					return string_view();
+				if (chunks.empty() || used + need > chunkCapacity.back()) {
+					const size_t bytes = need > chunkSize ? need : chunkSize;
+					chunks.push_back(std::unique_ptr<char[]>(new char[bytes]));
+					chunkCapacity.push_back(bytes);
+					used = 0;
+				}
+				char* destination = chunks.back().get() + used;
+				std::memcpy(destination, value.data(), need);
+				used += need;
+				return string_view(destination, need);
 			}
 		};
 
@@ -283,6 +302,11 @@ namespace ZJSON {
 
 			// Fallback used only if the compiler selects the unsized deallocation; every
 			// block that can reach it is node-sized, so the free list stays consistent.
+			//
+			// The invariant is structural: allocate() serves requests that are exactly
+			// BlockSize and hands anything else to ::operator new, so a pointer arriving
+			// here is always a slab block. Keep the two deallocation overloads in step if
+			// a second node size is ever introduced.
 			void deallocate(void* ptr) noexcept {
 				if (!ptr)
 					return;
@@ -312,6 +336,37 @@ namespace ZJSON {
 		template <typename T, typename = void>
 		struct has_adl_to_json : std::false_type {};
 
+		// A LIFO stack that keeps its first InlineCapacity entries inside the object and
+		// only reaches for the heap when a document nests deeper than that.  The iterative
+		// traversals (clone, destroy, measure, serialize, compare) use it, so ordinary
+		// documents - which are shallow - allocate nothing at all, while arbitrarily deep
+		// ones still work.
+		template <typename T, size_t InlineCapacity>
+		class SmallStack {
+		public:
+			bool empty() const noexcept { return inlineCount_ == 0 && overflow_.empty(); }
+			T& back() noexcept { return overflow_.empty() ? inline_[inlineCount_ - 1] : overflow_.back(); }
+			void push_back(const T& value) {
+				if (overflow_.empty() && inlineCount_ < InlineCapacity) {
+					inline_[inlineCount_++] = value;
+					return;
+				}
+				overflow_.push_back(value);
+			}
+			void pop_back() {
+				if (!overflow_.empty()) {
+					overflow_.pop_back();
+					return;
+				}
+				--inlineCount_;
+			}
+
+		private:
+			T inline_[InlineCapacity]{};
+			size_t inlineCount_ = 0;
+			std::vector<T> overflow_;
+		};
+
 		template <typename T>
 		struct has_adl_to_json<T, std::void_t<decltype(to_json(std::declval<Json&>(), std::declval<const T&>()))>>
 			: std::true_type {};
@@ -336,6 +391,10 @@ namespace ZJSON {
 			std::declval<const char*>(), std::declval<const char*>(), std::declval<T&>()))>>
 			: std::true_type {};
 
+		// Forward declaration: the wrappers below use it, the definition follows so that
+		// the parsing rules stay in one readable block.
+		inline bool parseSpecialOrHex(string_view text, double& out);
+
 		// Locale-independent double parsing. std::from_chars never consults
 		// LC_NUMERIC, unlike std::strtod, so "1.5" is not truncated to 1 in
 		// comma-decimal locales. Out-of-range magnitudes keep the historical
@@ -346,11 +405,18 @@ namespace ZJSON {
 			auto res = std::from_chars(text.data(), text.data() + text.size(), value);
 			if (res.ec == std::errc{})
 				return value;
-			string tmp(text);
-			return std::strtod(tmp.c_str(), nullptr);
+			if (res.ec == std::errc::result_out_of_range)
+				return value;                       // from_chars already saturated it
+			return parseSpecialOrHex(text, value) ? value : 0.0;
 		}
 
 		inline double parseDoubleImpl(string_view text, std::false_type /*no_from_chars*/) {
+			// Older standard libraries: std::strtod is the only option, but the
+			// special forms are still handled here so the result does not depend on
+			// the C locale for them either.
+			double value = 0.0;
+			if (parseSpecialOrHex(text, value))
+				return value;
 			string tmp(text);
 			return std::strtod(tmp.c_str(), nullptr);
 		}
@@ -359,23 +425,128 @@ namespace ZJSON {
 			return parseDoubleImpl(text, has_fp_from_chars<double>{});
 		}
 
+		// Recognises the forms that std::from_chars rejects but that the historical
+		// std::atof-based code accepted: [+-]inf, [+-]infinity, [+-]nan and
+		// hexadecimal floating point (0x1.8p1). Parsing them here keeps the result
+		// independent of LC_NUMERIC, which std::atof would consult for the radix
+		// point of a hex literal.
+		inline bool parseSpecialOrHex(string_view text, double& out) {
+			if (text.empty())
+				return false;
+
+			bool negative = false;
+			size_t index = 0;
+			if (text[0] == '+' || text[0] == '-') {
+				negative = (text[0] == '-');
+				index = 1;
+			}
+			const string_view rest = text.substr(index);
+			if (rest.empty())
+				return false;
+			auto startsWithIgnoreCase = [](string_view candidate, const char* prefix) {
+				const size_t length = std::strlen(prefix);
+				if (candidate.size() < length)
+					return false;
+				for (size_t i = 0; i < length; ++i) {
+					if (std::tolower(static_cast<unsigned char>(candidate[i])) != prefix[i])
+						return false;
+				}
+				return true;
+			};
+
+			if (startsWithIgnoreCase(rest, "inf")) {           // "inf" and "infinity"
+				out = negative ? -HUGE_VAL : HUGE_VAL;
+				return true;
+			}
+			if (startsWithIgnoreCase(rest, "nan")) {
+				out = std::nan("");
+				if (negative)
+					out = -out;
+				return true;
+			}
+			if (rest.size() > 1 && rest[0] == '0' && (rest[1] == 'x' || rest[1] == 'X')) {
+				auto hexValue = [](char ch) -> int {
+					if (ch >= '0' && ch <= '9') return ch - '0';
+					if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+					if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+					return -1;
+				};
+
+				size_t cursor = 2;
+				double mantissa = 0.0;
+				int exponent = 0;
+				bool anyDigit = false;
+				for (; cursor < rest.size(); ++cursor) {
+					const int digit = hexValue(rest[cursor]);
+					if (digit < 0)
+						break;
+					mantissa = mantissa * 16.0 + digit;
+					anyDigit = true;
+				}
+				if (cursor < rest.size() && rest[cursor] == '.') {
+					++cursor;
+					for (; cursor < rest.size(); ++cursor) {
+						const int digit = hexValue(rest[cursor]);
+						if (digit < 0)
+							break;
+						mantissa = mantissa * 16.0 + digit;
+						exponent -= 4;
+						anyDigit = true;
+					}
+				}
+				if (!anyDigit)
+					return false;                               // e.g. "0x"
+				if (cursor < rest.size() && (rest[cursor] == 'p' || rest[cursor] == 'P')) {
+					++cursor;
+					bool negativeExponent = false;
+					if (cursor < rest.size() && (rest[cursor] == '+' || rest[cursor] == '-')) {
+						negativeExponent = (rest[cursor] == '-');
+						++cursor;
+					}
+					int value = 0;
+					bool anyExponentDigit = false;
+					for (; cursor < rest.size(); ++cursor) {
+						if (!std::isdigit(static_cast<unsigned char>(rest[cursor])))
+							break;
+						value = value * 10 + (rest[cursor] - '0');
+						anyExponentDigit = true;
+					}
+					if (anyExponentDigit)
+						exponent += negativeExponent ? -value : value;
+				}
+				out = std::ldexp(mantissa, exponent);
+				if (negative)
+					out = -out;
+				return true;
+			}
+			return false;
+		}
+
 		// atof()-compatible "parse a leading number, ignore the rest" used by
-		// Json::toDouble() for string values: leading whitespace is skipped and
-		// values that from_chars rejects (inf / nan / hex) still fall back to atof.
+		// Json::toDouble() for string values: leading whitespace is skipped, the
+		// special/hex forms below are recognised first (std::from_chars would otherwise
+		// accept the leading "0" of "0x10" and stop there), and everything else is parsed
+		// by std::from_chars, which is locale independent and stops at the first
+		// character that cannot continue the number - "3.5abc" still yields 3.5.
 		inline double parseLeadingDoubleImpl(string_view text, std::true_type /*has_from_chars*/) {
+			double special = 0.0;
+			if (parseSpecialOrHex(text, special))
+				return special;
 			double value = 0.0;
 			auto res = std::from_chars(text.data(), text.data() + text.size(), value);
 			if (res.ec == std::errc{})
 				return value;
-			string tmp(text);
 			if (res.ec == std::errc::result_out_of_range)
-				return std::strtod(tmp.c_str(), nullptr);
-			return std::atof(tmp.c_str());
+				return value;							// from_chars saturated it to +/-inf or 0
+			return 0.0;
 		}
 
 		inline double parseLeadingDoubleImpl(string_view text, std::false_type /*no_from_chars*/) {
+			double value = 0.0;
+			if (parseSpecialOrHex(text, value))
+				return value;
 			string tmp(text);
-			return std::atof(tmp.c_str());
+			return std::strtod(tmp.c_str(), nullptr);
 		}
 
 		inline double parseLeadingDouble(string_view text) {
@@ -509,6 +680,89 @@ namespace ZJSON {
 		}
 		return true;
 	}
+
+	// ---------------------------------------------------------------------------
+	// Output sinks.
+	//
+	// Serialization is written through one of these, so the very same iterative
+	// writer can either fill a std::string (toString) or stream straight to an
+	// std::ostream (dumpTo) without materialising the whole document first.
+	// ---------------------------------------------------------------------------
+	namespace detail {
+
+	// Escaped form of a single byte; returns the number of bytes written (2 or 6).
+	inline size_t escapeByte(unsigned char ch, char* out) {
+		switch (ch) {
+		case '"': out[0] = '\\'; out[1] = '"'; return 2;
+		case '\\': out[0] = '\\'; out[1] = '\\'; return 2;
+		case '\b': out[0] = '\\'; out[1] = 'b'; return 2;
+		case '\f': out[0] = '\\'; out[1] = 'f'; return 2;
+		case '\n': out[0] = '\\'; out[1] = 'n'; return 2;
+		case '\r': out[0] = '\\'; out[1] = 'r'; return 2;
+		case '\t': out[0] = '\\'; out[1] = 't'; return 2;
+		default: {
+			static constexpr char hex[] = "0123456789abcdef";
+			out[0] = '\\'; out[1] = 'u'; out[2] = '0'; out[3] = '0';
+			out[4] = hex[ch >> 4];
+			out[5] = hex[ch & 0x0F];
+			return 6;
+		}
+		}
+	}
+
+	struct StringSink {
+		string& out;
+		explicit StringSink(string& target) : out(target) {}
+		void push_back(char ch) { out.push_back(ch); }
+		void append(const char* data, size_t length) { out.append(data, length); }
+		void appendNumber(double value) { ZJSON::appendNumber(value, out); }
+		void appendEscaped(string_view text) { appendEscapedString(text, out); }
+		void appendIndent(int indentSize, int depth) {
+			if (indentSize > 0)
+				out.append(static_cast<size_t>(indentSize) * static_cast<size_t>(depth > 0 ? depth : 0), ' ');
+		}
+	};
+
+	struct StreamSink {
+		std::ostream& out;
+		explicit StreamSink(std::ostream& target) : out(target) {}
+		void push_back(char ch) { out.put(ch); }
+		void append(const char* data, size_t length) { out.write(data, static_cast<std::streamsize>(length)); }
+		void appendNumber(double value) {
+			// One reused buffer: numbers are short and this keeps the writer allocation
+			// free after the first call.
+			scratch.clear();
+			ZJSON::appendNumber(value, scratch);
+			out.write(scratch.data(), static_cast<std::streamsize>(scratch.size()));
+		}
+		void appendEscaped(string_view text) {
+			const char* data = text.data();
+			const size_t length = text.size();
+			size_t chunkStart = 0;
+			for (size_t index = 0; index < length; ++index) {
+				const unsigned char ch = static_cast<unsigned char>(data[index]);
+				if (ch >= 0x20 && ch != '"' && ch != '\\')
+					continue;
+				if (index > chunkStart)
+					out.write(data + chunkStart, static_cast<std::streamsize>(index - chunkStart));
+				char escaped[6];
+				const size_t written = escapeByte(ch, escaped);
+				out.write(escaped, static_cast<std::streamsize>(written));
+				chunkStart = index + 1;
+			}
+			if (chunkStart < length)
+				out.write(data + chunkStart, static_cast<std::streamsize>(length - chunkStart));
+		}
+		void appendIndent(int indentSize, int depth) {
+			if (indentSize > 0)
+				out << string(static_cast<size_t>(indentSize) * static_cast<size_t>(depth > 0 ? depth : 0), ' ');
+		}
+
+	private:
+		string scratch;
+	};
+
+	} // namespace detail
 
 	enum class Type {
 		Error,
@@ -700,6 +954,66 @@ namespace ZJSON {
 			return true;
 		}
 
+		// Allocation-free token decode.  Without escapes the token is returned as a view
+		// of the input; with escapes it is decoded into `buffer`, falling back to
+		// `overflow` only for tokens longer than the buffer.
+		static bool decodeTokenInto(string_view token, char* buffer, size_t capacity, string_view& decoded, string& overflow) {
+			if (token.find('~') == string_view::npos) {
+				decoded = token;
+				return true;
+			}
+
+			if (token.size() <= capacity) {
+				size_t written = 0;
+				for (size_t i = 0; i < token.size(); ++i) {
+					if (token[i] != '~') {
+						buffer[written++] = token[i];
+						continue;
+					}
+					if (i + 1 >= token.size())
+						return false;
+					const char next = token[++i];
+					if (next == '0') buffer[written++] = '~';
+					else if (next == '1') buffer[written++] = '/';
+					else return false;
+				}
+				decoded = string_view(buffer, written);
+				return true;
+			}
+
+			overflow.clear();
+			overflow.reserve(token.size());
+			for (size_t i = 0; i < token.size(); ++i) {
+				if (token[i] != '~') {
+					overflow.push_back(token[i]);
+					continue;
+				}
+				if (i + 1 >= token.size())
+					return false;
+				const char next = token[++i];
+				if (next == '0') overflow.push_back('~');
+				else if (next == '1') overflow.push_back('/');
+				else return false;
+			}
+			decoded = string_view(overflow.data(), overflow.size());
+			return true;
+		}
+
+		static bool parsePointerIndexView(string_view token, size_t& index) {
+			if (token.empty())
+				return false;
+			if (token.size() > 1 && token[0] == '0')
+				return false;
+			size_t value = 0;
+			for (char ch : token) {
+				if (ch < '0' || ch > '9')
+					return false;
+				value = value * 10 + static_cast<size_t>(ch - '0');
+			}
+			index = value;
+			return true;
+		}
+
 		void overwritePreservingLinks(const Json& value, bool preserveName = true) {
 			Json* next = this->brother;
 			string savedName = this->name;
@@ -736,170 +1050,351 @@ namespace ZJSON {
 			}
 		}
 
-		void serializeCompact(const Json* json, string& result) const {
+		// Writes one leaf value through a sink (string- or stream-backed).
+		template <typename Sink>
+		static void writeRawValue(const Json* node, Sink& sink) {
+			switch (node->type) {
+			case Type::String:
+				sink.push_back('"');
+				sink.appendEscaped(node->valueString.view());
+				sink.push_back('"');
+				break;
+			case Type::Number:
+				sink.appendNumber(node->valueNumber);
+				break;
+			case Type::True:
+				sink.append("true", 4);
+				break;
+			case Type::False:
+				sink.append("false", 5);
+				break;
+			case Type::Null:
+				sink.append("null", 4);
+				break;
+			case Type::Error:
+			case Type::Object:
+			case Type::Array:
+			default:
+				break;
+			}
+		}
+
+		// Compact printer.  Iterative, and templated on the sink so the same code can
+		// fill a string or stream directly to an output stream without building the
+		// whole document in memory first.
+		template <typename Sink>
+		static void writeCompact(const Json* json, Sink& sink) {
 			if (json->type != Type::Object && json->type != Type::Array) {
-				appendRawValue(json, result);
+				writeRawValue(json, sink);
 				return;
 			}
 
 			struct Frame {
 				const Json* container;
-				Json* next;
+				const Json* next;
 				bool wroteAny;
 			};
 
-			vector<Frame> frames;
-			frames.reserve(32);
-			result.push_back(json->type == Type::Object ? '{' : '[');
+			detail::SmallStack<Frame, 64> frames;
+			sink.push_back(json->type == Type::Object ? '{' : '[');
 			frames.push_back({ json, json->child, false });
 
 			while (!frames.empty()) {
 				Frame& frame = frames.back();
 				if (!frame.next) {
-					result.push_back(frame.container->type == Type::Object ? '}' : ']');
+					sink.push_back(frame.container->type == Type::Object ? '}' : ']');
 					frames.pop_back();
 					continue;
 				}
 
-				Json* cur = frame.next;
+				const Json* cur = frame.next;
 				frame.next = cur->brother;
 				if (frame.wroteAny)
-					result.push_back(',');
+					sink.push_back(',');
 				else
 					frame.wroteAny = true;
 
-				if (frame.container->type == Type::Object)
-					appendQuotedKey(cur->name, result);
+				if (frame.container->type == Type::Object) {
+					sink.push_back('"');
+					sink.appendEscaped(cur->name.view());
+					sink.append("\":", 2);
+				}
 
 				if (cur->type == Type::Object || cur->type == Type::Array) {
-					result.push_back(cur->type == Type::Object ? '{' : '[');
+					sink.push_back(cur->type == Type::Object ? '{' : '[');
 					frames.push_back({ cur, cur->child, false });
 				} else {
-					appendRawValue(cur, result);
+					writeRawValue(cur, sink);
 				}
 			}
 		}
 
+		void serializeCompact(const Json* json, string& result) const {
+			detail::StringSink sink(result);
+			writeCompact(json, sink);
+		}
+
+		// Pre-computed size hint for reserve().  Iterative for the same reason as the
+		// other traversals, but only containers are stacked: a leaf contributes a constant
+		// amount (plus its key and indentation), so a wide object or a long array of
+		// scalars is measured with a single walk and no bookkeeping.
 		size_t estimateSerializedSize(const Json* json, int indentSize = 0, int depth = 0) const {
 			if (!json)
 				return 0;
-			switch (json->type) {
-			case Type::Error:
-				return 0;
-			case Type::False:
-				return 5;
-			case Type::True:
-				return 4;
-			case Type::Null:
-				return 4;
-			case Type::Number:
-				return 32;
-			case Type::String:
-				return json->valueString.size() + 2;
-			case Type::Object:
-			case Type::Array: {
-				if (!json->child)
-					return 2;
-				size_t total = 2;
-				size_t count = 0;
-				for (Json* cur = json->child; cur; cur = cur->brother) {
-					if (json->type == Type::Object)
-						total += cur->name.size() + 3;
-					total += estimateSerializedSize(cur, indentSize, depth + 1);
-					if (indentSize > 0)
-						total += static_cast<size_t>((depth + 1) * indentSize + 1);
-					++count;
+
+			struct Frame {
+				const Json* node;
+				int depth;
+			};
+
+			size_t total = 0;
+			detail::SmallStack<Frame, 64> containers;
+			containers.push_back({ json, depth });
+
+			while (!containers.empty()) {
+				const Frame frame = containers.back();
+				containers.pop_back();
+				const Json* node = frame.node;
+
+				switch (node->type) {
+				case Type::Error:
+					break;
+				case Type::False:
+					total += 5;
+					break;
+				case Type::True:
+					total += 4;
+					break;
+				case Type::Null:
+					total += 4;
+					break;
+				case Type::Number:
+					total += 32;		// generous upper bound for the shortest round-trip form
+					break;
+				case Type::String:
+					total += node->valueString.size() + 2;
+					break;
+				case Type::Object:
+				case Type::Array: {
+					const bool isObject = (node->type == Type::Object);
+					total += 2;                                      // braces
+					if (indentSize > 0 && node->child)
+						total += static_cast<size_t>((frame.depth * indentSize + 1) + (frame.depth * indentSize + 2) - 1);
+					size_t members = 0;
+					for (const Json* cur = node->child; cur; cur = cur->brother) {
+						if (isObject)
+							total += cur->name.size() + 3;			// "key": 
+						if (indentSize > 0)
+							total += static_cast<size_t>((frame.depth + 1) * indentSize + 1);
+						if (cur->type == Type::Object || cur->type == Type::Array)
+							containers.push_back({ cur, frame.depth + 1 });
+						else
+							total += leafSize(cur);
+						++members;
+					}
+					if (members > 1)
+						total += members - 1;					// separators
+					break;
 				}
-				if (count > 0)
-					total += count - 1;
-				if (indentSize > 0)
-					total += static_cast<size_t>(depth * indentSize + 2);
-				return total;
+				}
 			}
-			}
-			return 0;
+			return total;
 		}
 
-		void serializePretty(const Json* json, string& result, int indentSize, int depth) const {
-			switch (json->type) {
-			case Type::String:
-			case Type::Number:
-			case Type::True:
-			case Type::False:
-			case Type::Null:
-				appendRawValue(json, result);
-				return;
-			case Type::Error:
-				return;
-			case Type::Object:
-			case Type::Array:
-				break;
+		static size_t leafSize(const Json* node) {
+			switch (node->type) {
+			case Type::False: return 5;
+			case Type::True: return 4;
+			case Type::Null: return 4;
+			case Type::Number: return 32;		// generous upper bound for the shortest round-trip form
+			case Type::String: return node->valueString.size() + 2;
+			default: return 0;
 			}
-
-			const bool isObject = json->type == Type::Object;
-			result.push_back(isObject ? '{' : '[');
-			if (!json->child) {
-				result.push_back(isObject ? '}' : ']');
-				return;
-			}
-			result.push_back('\n');
-			for (Json* cur = json->child; cur; cur = cur->brother) {
-				appendIndent(result, indentSize, depth + 1);
-				if (isObject) {
-					appendQuotedKey(cur->name, result);
-					result.push_back(' ');
-				}
-				serializePretty(cur, result, indentSize, depth + 1);
-				if (cur->brother)
-					result.push_back(',');
-				result.push_back('\n');
-			}
-			appendIndent(result, indentSize, depth);
-			result.push_back(isObject ? '}' : ']');
 		}
 
-		bool equalsObject(const Json& other) const {
-			const size_t lhsCount = this->childCount();
-			if (lhsCount != other.childCount())
+		// Pretty printer.  Iterative, like the compact one, so that a deep document can
+		// be printed without touching the call stack; each frame remembers where in its
+		// member chain the writer stopped.
+		template <typename Sink>
+		static void writePretty(const Json* json, Sink& sink, int indentSize, int depth) {
+			if (json->type != Type::Object && json->type != Type::Array) {
+				writeRawValue(json, sink);
+				return;
+			}
+
+			struct Frame {
+				const Json* container;
+				const Json* next;
+				int depth;
+				bool wroteAny;
+			};
+
+			detail::SmallStack<Frame, 64> stk;
+			stk.push_back({ json, json->child, depth, false });
+			sink.push_back(json->type == Type::Object ? '{' : '[');
+
+			while (!stk.empty()) {
+				Frame& frame = stk.back();
+				if (!frame.next) {
+					if (frame.wroteAny) {
+						sink.push_back('\n');
+						sink.appendIndent(indentSize, frame.depth);
+					}
+					sink.push_back(frame.container->type == Type::Object ? '}' : ']');
+					stk.pop_back();
+					continue;
+				}
+
+				const Json* cur = frame.next;
+				frame.next = cur->brother;
+				if (frame.wroteAny)
+					sink.push_back(',');
+				else
+					frame.wroteAny = true;
+				sink.push_back('\n');
+				sink.appendIndent(indentSize, frame.depth + 1);
+
+				if (frame.container->type == Type::Object) {
+					sink.push_back('"');
+					sink.appendEscaped(cur->name.view());
+					sink.append("\": ", 3);
+				}
+
+				if (cur->type == Type::Object || cur->type == Type::Array) {
+					sink.push_back(cur->type == Type::Object ? '{' : '[');
+					stk.push_back({ cur, cur->child, frame.depth + 1, false });
+				} else {
+					writeRawValue(cur, sink);
+				}
+			}
+		}
+
+		// R1-1: equality.  Members are grouped by key so a lookup does not rescan the
+		// whole right-hand side, and duplicate keys behave as a multiset: a key that
+		// appears twice on the left must appear twice on the right, with matching
+		// values in some pairing.  The traversal is iterative so deep documents can be
+		// compared without recursing on the call stack.
+		bool equalsIterative(const Json& other) const {
+			detail::SmallStack<std::pair<const Json*, const Json*>, 64> work;
+			work.push_back({ this, &other });
+
+			while (!work.empty()) {
+				const Json* lhs = work.back().first;
+				const Json* rhs = work.back().second;
+				work.pop_back();
+
+				if (lhs->type != rhs->type)
+					return false;
+
+				switch (lhs->type) {
+				case Type::Number:
+					if (lhs->valueNumber != rhs->valueNumber)
+						return false;
+					break;
+				case Type::String:
+					if (lhs->valueString != rhs->valueString)
+						return false;
+					break;
+				case Type::Object:
+					if (!compareObjects(*lhs, *rhs, work))
+						return false;
+					break;
+				case Type::Array:
+					if (!compareArrays(*lhs, *rhs, work))
+						return false;
+					break;
+				case Type::Error:
+				case Type::False:
+				case Type::True:
+				case Type::Null:
+					break;										// same type is enough
+				}
+			}
+			return true;
+		}
+
+		// Queues every member pair of two objects that still has to be compared deeply.
+		template <typename WorkStack>
+		bool compareObjects(const Json& lhs, const Json& rhs, WorkStack& work) const {
+			const size_t lhsCount = lhs.childCount();
+			if (lhsCount != rhs.childCount())
 				return false;
-			std::vector<const Json*> rhsNodes;
-			rhsNodes.reserve(lhsCount);
-			for (Json* cur = other.child; cur; cur = cur->brother)
-				rhsNodes.push_back(cur);
-			std::vector<bool> matched(rhsNodes.size(), false);
-			for (Json* lhs = this->child; lhs; lhs = lhs->brother) {
-				bool found = false;
-				for (size_t i = 0; i < rhsNodes.size(); ++i) {
-					if (matched[i] || rhsNodes[i]->name != lhs->name)
+			if (lhsCount == 0)
+				return true;
+
+			struct Candidate { const Json* node; bool used; };
+			std::unordered_map<string_view, std::vector<Candidate>> byKey;
+			byKey.reserve(lhsCount);
+			for (const Json* cur = rhs.child; cur; cur = cur->brother)
+				byKey[cur->name.view()].push_back({ cur, false });
+
+			for (const Json* member = lhs.child; member; member = member->brother) {
+				auto found = byKey.find(member->name.view());
+				if (found == byKey.end())
+					return false;
+				std::vector<Candidate>& candidates = found->second;
+
+				// Prefer a same-typed, not yet used candidate.  When only one candidate
+				// remains the deep comparison can be deferred to the shared work list
+				// (this is the common case and keeps deep chains iterative).
+				size_t usable = 0;
+				size_t lastUsable = 0;
+				for (size_t i = 0; i < candidates.size(); ++i) {
+					if (!candidates[i].used && candidates[i].node->type == member->type) {
+						++usable;
+						lastUsable = i;
+					}
+				}
+				if (usable == 0)
+					return false;
+
+				if (usable == 1) {
+					candidates[lastUsable].used = true;
+					work.push_back({ member, candidates[lastUsable].node });
+					continue;
+				}
+
+				// Several candidates share this key: pick the first one that is deeply
+				// equal.  This nested comparison is iterative as well, and it only nests
+				// as deep as the document nests duplicate keys.
+				bool matched = false;
+				for (Candidate& candidate : candidates) {
+					if (candidate.used || candidate.node->type != member->type)
 						continue;
-					if (*lhs == *rhsNodes[i]) {
-						matched[i] = true;
-						found = true;
+					if (member->equalsIterative(*candidate.node)) {
+						candidate.used = true;
+						matched = true;
 						break;
 					}
 				}
-				if (!found)
+				if (!matched)
 					return false;
 			}
 			return true;
 		}
 
-		bool equalsArray(const Json& other) const {
-			Json* lhs = this->child;
-			Json* rhs = other.child;
-			while (lhs && rhs) {
-				if (!(*lhs == *rhs))
-					return false;
-				lhs = lhs->brother;
-				rhs = rhs->brother;
+		// Queues the element pairs of two arrays, in order.
+		template <typename WorkStack>
+		bool compareArrays(const Json& lhs, const Json& rhs, WorkStack& work) const {
+			const Json* left = lhs.child;
+			const Json* right = rhs.child;
+			while (left || right) {
+				if (!left || !right)
+					return false;							// different lengths
+				work.push_back({ left, right });
+				left = left->brother;
+				right = right->brother;
 			}
-			return lhs == nullptr && rhs == nullptr;
+			return true;
 		}
 
-		static Json parse(const std::string& in, std::string& err, const ParseOptions& options = ParseOptions{})
+		// Parses `in`, which the arena takes ownership of.  The const& overload copies
+		// the input; the std::string&& overload moves it, so parsing a buffer the caller
+		// is finished with costs no copy.  There is deliberately no entry point that
+		// borrows a caller-owned char buffer: the parsed document may keep views into
+		// that buffer, and a borrowed view would dangle as soon as the caller reuses it.
+		static Json parse(std::string&& in, std::string& err, const ParseOptions& options = ParseOptions{})
 		{
-			// A successful parse must not leave a stale message behind, so the caller's
-			// error string is cleared up front and only filled on failure.
 			err.clear();
 			if (options.validateUtf8) {
 				size_t errPos = 0;
@@ -908,15 +1403,21 @@ namespace ZJSON {
 					return Json(Type::Error);
 				}
 			}
-			auto arena = std::make_shared<detail::StringArena>(in);
+			const size_t inputSize = in.size();
+			auto arena = std::make_shared<detail::StringArena>(std::move(in));
 			JsonParser parser{ *arena->source, 0, err, false, options.allowComments, options.duplicateKey, arena };
 			Json result = parser.parse_json_pda();
 			if (result.type == Type::Error)
 				return result;
 			parser.consume_garbage();
-			if (parser.i != in.size())
-				return parser.fail("unexpected trailing " + esc(in[parser.i]));
+			if (parser.i != inputSize)
+				return parser.fail("unexpected trailing " + esc(arena->source->at(parser.i)));
 			return result;
+		}
+
+		static Json parse(const std::string& in, std::string& err, const ParseOptions& options = ParseOptions{})
+		{
+			return parse(std::string(in), err, options);
 		}
 
 		static Json parse(const char* in, std::string& err, const ParseOptions& options = ParseOptions{}) {
@@ -943,33 +1444,73 @@ namespace ZJSON {
 			this->valueNumber = 0;
 		}
 
-		// Clones source's sibling chain; *outTail receives the last node (may be nullptr if source is nullptr)
+		// Copies the scalar state of a node; the caller wires up the links.
+		static Json* cloneScalar(const Json* source) {
+			Json* node = new Json(source->type);
+			node->name = source->name;
+			node->valueString = source->valueString;
+			node->valueNumber = source->valueNumber;
+			return node;
+		}
+
+		// Clones `source` and its whole subtree, including the sibling chain the source
+		// belongs to. *outTail receives the last node of the cloned chain.
+		//
+		// Iterative on purpose: the previous recursive version exhausted the call stack at
+		// roughly 8000 levels of nesting (covered by the deep-document tests). Frames hold
+		// one container each and a position in its child chain, so the stack grows with
+		// nesting depth - not with the width of the document - and a flat chain allocates
+		// nothing at all.
 		static Json* cloneChain(const Json* source, Json** outTail = nullptr) {
 			if (!source) {
 				if (outTail) *outTail = nullptr;
 				return nullptr;
 			}
-			Json* head = new Json(source->type);
-			head->name = source->name;
-			head->valueString = source->valueString;
-			head->valueNumber = source->valueNumber;
-			Json* childTail = nullptr;
-			head->child = cloneChain(source->child, &childTail);
-			head->lastChild = childTail;
-			Json* tail = head;
-			const Json* cur = source->brother;
-			while (cur) {
-				Json* node = new Json(cur->type);
-				node->name = cur->name;
-				node->valueString = cur->valueString;
-				node->valueNumber = cur->valueNumber;
-				Json* nodeChildTail = nullptr;
-				node->child = cloneChain(cur->child, &nodeChildTail);
-				node->lastChild = nodeChildTail;
-				tail->brother = node;
+
+			struct Frame {
+				const Json* src;    // container whose children are being cloned
+				Json* dst;          // its clone
+				const Json* next;   // next child of `src` to clone (nullptr when done)
+				Json* tail;         // last child appended to `dst`
+			};
+
+			detail::SmallStack<Frame, 64> stack;
+			Json* head = nullptr;
+			Json* tail = nullptr;
+
+			for (const Json* cur = source; cur; cur = cur->brother) {
+				Json* node = cloneScalar(cur);
+				if (tail)
+					tail->brother = node;
+				else
+					head = node;
 				tail = node;
-				cur = cur->brother;
+				if (cur->child)
+					stack.push_back({ cur, node, cur->child, nullptr });
 			}
+
+			while (!stack.empty()) {
+				Frame& frame = stack.back();
+				if (!frame.next) {
+					stack.pop_back();
+					continue;
+				}
+
+				const Json* cur = frame.next;
+				Json* node = cloneScalar(cur);
+				// Update the frame completely before pushing (push_back may reallocate).
+				frame.next = cur->brother;
+				if (frame.tail)
+					frame.tail->brother = node;
+				else
+					frame.dst->child = node;
+				frame.tail = node;
+				frame.dst->lastChild = node;
+
+				if (cur->child)
+					stack.push_back({ cur, node, cur->child, nullptr });
+			}
+
 			if (outTail) *outTail = tail;
 			return head;
 		}
@@ -1144,6 +1685,22 @@ namespace ZJSON {
 			std::ifstream file(filepath, std::ios::binary);
 			if (!file.is_open())
 				return Json(Type::Error);
+
+			// One sized read instead of istreambuf_iterator<char>, which copied the file
+			// byte by byte.  seekg/tellg gives the length for regular files; the stream
+			// fallback covers the rare non-seekable case.
+			file.seekg(0, std::ios::end);
+			const std::streamoff size = file.tellg();
+			if (size > 0) {
+				std::string content(static_cast<size_t>(size), '\0');
+				file.seekg(0, std::ios::beg);
+				if (file.read(&content[0], size))
+					return Json(content);
+				return Json(Type::Error);
+			}
+
+			file.clear();
+			file.seekg(0, std::ios::beg);
 			std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 			if (content.empty())
 				return Json(Type::Error);
@@ -1156,6 +1713,12 @@ namespace ZJSON {
 
 		static Json ParseJson(const std::string& input, std::string& errMsg) {
 			return parse(input, errMsg);
+		}
+
+		// Takes ownership of `input` (no copy of the document text).  The caller must not
+		// use the string afterwards.
+		static Json ParseJson(std::string&& input, std::string& errMsg) {
+			return parse(std::move(input), errMsg);
 		}
 
 		static Json ParseJson(const std::string& input, std::string& errMsg, ParseOptions options) {
@@ -1271,15 +1834,49 @@ namespace ZJSON {
 				return rs;
 		}
 
-		Json operator[](const string& key) const {
+		// Direct member lookup through the lazy key index; nullptr when absent.
+		const Json* directMemberPtr(string_view key) const {
 			if (this->type != Type::Object || !this->child)
-				return Json(Type::Error);
-			// Fast path: keymap lookup for O(1) direct-child access
-			if (!this->keymap) buildKeymap();
-			auto it = this->keymap->find(key);
-			if (it != this->keymap->end()) return *(it->second);
-			// Slow path: deep search for nested keys (uncommon)
-			return this->find(key);
+				return nullptr;
+			if (!this->keymap)
+				buildKeymap();
+			auto found = this->keymap->find(string(key));
+			return found == this->keymap->end() ? nullptr : found->second;
+		}
+
+		// Resolves a key the way operator[] does: the direct member wins, otherwise the
+		// deep-search fallback runs.  Returns a pointer into the document, or nullptr.
+		const Json* resolveMemberPtr(string_view key) const {
+			if (this->type != Type::Object || !this->child)
+				return nullptr;
+			if (const Json* direct = directMemberPtr(key))
+				return direct;
+			return findPtrDeep(key);
+		}
+
+		Json operator[](const string& key) const {
+			const Json* found = resolveMemberPtr(key);
+			return found ? *found : Json(Type::Error);
+		}
+
+		// Mutable pointer to `key` (direct member first, then the deep fallback).
+		// Unlike operator[], which returns a copy, this gives direct write access.
+		Json* findPtr(string_view key) {
+			return const_cast<Json*>(static_cast<const Json&>(*this).resolveMemberPtr(key));
+		}
+
+		const Json* findPtr(string_view key) const {
+			return resolveMemberPtr(key);
+		}
+
+		// Mutable pointer addressed by an RFC 6901 pointer; nullptr when it does not
+		// resolve. See at() for the read-only value-returning form.
+		Json* findPtrAt(string_view pointer) {
+			return const_cast<Json*>(static_cast<const Json&>(*this).resolvePointerPtr(pointer));
+		}
+
+		const Json* findPtrAt(string_view pointer) const {
+			return resolvePointerPtr(pointer);
 		}
 
 		bool contains(const string& key) const {
@@ -1311,26 +1908,68 @@ namespace ZJSON {
 				return Json(Type::Error);
 		}
 
+		// Moves [start, end) out of the array.  end == 0 keeps its historical meaning of
+		// "through the end".  Chains are walked once instead of calling take() per
+		// element (which re-walked from the head and made this quadratic).
 		Json takes(int start, int end = 0) {
 			Json rs(Type::Array);
-			if (this->type == Type::Array) {
-				if (end == 0)
-					end = this->size();
-				while (start < end) {
-					rs.push_back(this->take(start));
-					end--;
-				}
+			if (this->type != Type::Array)
+				return rs;
+			if (end == 0)
+				end = this->size();
+
+			if (start < 0 || end <= start) {
+				// Reproduce the historical result: the old loop fed operator[] one index
+				// per iteration, and out-of-range indexes contributed an error node.
+				for (int index = start; index < end; ++index)
+					rs.push_back(Json(Type::Error));
+				return rs;
 			}
+
+			Json* prev = nullptr;
+			Json* cur = this->child;
+			for (int index = 0; index < start && cur; ++index) {
+				prev = cur;
+				cur = cur->brother;
+			}
+
+			int remaining = end - start;
+			while (cur && remaining > 0) {
+				Json* next = cur->brother;
+				unlinkChild(this, prev, cur);
+				rs.push_back(std::move(*cur));
+				delete cur;
+				cur = next;
+				--remaining;
+			}
+			// Past the end of the array: the old code appended error nodes for the
+			// remaining iterations, so keep that observable behaviour.
+			while (remaining-- > 0)
+				rs.push_back(Json(Type::Error));
 			return rs;
 		}
 
+		// Copies [start, end) out of the array in a single walk; end == 0 means "through
+		// the end".  Out-of-range positions contribute an error node, matching
+		// operator[](int).
 		Json slice(int start, int end = 0) const {
 			Json rs(Type::Array);
-			if (this->type == Type::Array) {
-				if (end == 0)
-					end = this->size();
-				while (start < end)
-					rs.push_back((*this)[start++]);
+			if (this->type != Type::Array)
+				return rs;
+			if (end == 0)
+				end = this->size();
+
+			int index = 0;
+			const Json* cur = this->child;
+			for (; index < start && cur; ++index)
+				cur = cur->brother;
+			for (; index < end; ++index) {
+				if (cur) {
+					rs.push_back(*cur);
+					cur = cur->brother;
+				} else {
+					rs.push_back(Json(Type::Error));
+				}
 			}
 			return rs;
 		}
@@ -1403,39 +2042,39 @@ namespace ZJSON {
 			return this->addNamed(std::move(name), std::move(value));
 		}
 
-		bool isError() const {
+		bool isError() const noexcept {
 			return this->type == Type::Error;
 		}
 
-		bool isNull() const {
+		bool isNull() const noexcept {
 			return this->type == Type::Null;
 		}
 
-		bool isObject() const {
+		bool isObject() const noexcept {
 			return this->type == Type::Object;
 		}
 
-		bool isArray() const {
+		bool isArray() const noexcept {
 			return this->type == Type::Array;
 		}
 
-		bool isNumber() const {
+		bool isNumber() const noexcept {
 			return this->type == Type::Number;
 		}
 
-		bool isTrue() const {
+		bool isTrue() const noexcept {
 			return this->type == Type::True;
 		}
 
-		bool isFalse() const {
+		bool isFalse() const noexcept {
 			return this->type == Type::False;
 		}
 
-		bool isString() const {
+		bool isString() const noexcept {
 			return this->type == Type::String;
 		}
 
-		int size() const {
+		int size() const noexcept {
 			if (this->type == Type::Array) {
 				int ct = 0;
 				Json* cur = this->child;
@@ -1451,11 +2090,11 @@ namespace ZJSON {
 			}
 		}
 
-		bool isEmpty() const {
+		bool isEmpty() const noexcept {
 			return this->size() <= 0;
 		}
 
-		string toString() const {
+		[[nodiscard]] string toString() const {
 			if (this->type == Type::Error) {
 				return "";
 			}
@@ -1465,19 +2104,32 @@ namespace ZJSON {
 
 			string result;
 			result.reserve(estimateSerializedSize(this));
-			serializeCompact(this, result);
+			detail::StringSink sink(result);
+			writeCompact(this, sink);
 			return result;
 		}
 
-		string toString(int indent) const {
+		[[nodiscard]] string toString(int indent) const {
 			if (indent <= 0)
 				return this->toString();
 			if (this->type == Type::Error)
 				return "";
 			string result;
 			result.reserve(estimateSerializedSize(this, indent));
-			serializePretty(this, result, indent, 0);
+			detail::StringSink sink(result);
+			writePretty(this, sink, indent, 0);
 			return result;
+		}
+
+		// Writes the document straight to a stream instead of building the whole text
+		// in memory first (dump()/operator<< keep their historical behaviour).
+		std::ostream& dumpTo(std::ostream& out, int indent = 0) const {
+			detail::StreamSink sink(out);
+			if (indent > 0)
+				writePretty(this, sink, indent, 0);
+			else
+				writeCompact(this, sink);
+			return out;
 		}
 
 		std::ostream& dump(std::ostream& out, int indent = 0) const {
@@ -1489,59 +2141,167 @@ namespace ZJSON {
 			return json.dump(out);
 		}
 
-		Json at(const string& pointer) const {
+		// Reads the node that an RFC 6901 pointer addresses, or nullptr.  Tokens are
+		// sliced as views and escapes are decoded into a stack buffer, so evaluating a
+		// pointer does not build temporary std::strings (short tokens also stay inside
+		// the key index's small-string buffer when it is probed).
+		const Json* resolvePointerPtr(string_view pointer) const {
 			if (pointer.empty())
-				return *this;
+				return this;
 			if (pointer[0] != '/')
-				return Json(Type::Error);
+				return nullptr;
+
+			char buffer[128];
+			string overflow;
 			const Json* current = this;
 			size_t start = 1;
-			while (start <= pointer.size()) {
-				size_t slash = pointer.find('/', start);
-				string token = pointer.substr(start, slash == string::npos ? string::npos : slash - start);
-				string decoded;
-				if (!decodePointerToken(token, decoded))
-					return Json(Type::Error);
+			for (;;) {
+				const size_t slash = pointer.find('/', start);
+				const string_view raw = pointer.substr(start, slash == string_view::npos ? string_view::npos : slash - start);
+				string_view token;
+				if (!decodeTokenInto(raw, buffer, sizeof(buffer), token, overflow))
+					return nullptr;
+
 				if (current->type == Type::Object) {
-					current = current->directChildByKey(decoded);
-				}
-				else if (current->type == Type::Array) {
+					const Json* direct = current->directMemberPtr(token);
+					current = direct;
+				} else if (current->type == Type::Array) {
 					size_t index = 0;
-					if (!parsePointerIndex(decoded, index))
-						return Json(Type::Error);
+					if (!parsePointerIndexView(token, index))
+						return nullptr;
 					current = current->directChildByIndex(index);
+				} else {
+					return nullptr;
 				}
-				else {
-					return Json(Type::Error);
-				}
+
 				if (!current)
-					return Json(Type::Error);
-				if (slash == string::npos)
+					return nullptr;
+				if (slash == string_view::npos)
 					break;
 				start = slash + 1;
 			}
-			return *current;
+			return current;
+		}
+
+		Json at(const string& pointer) const {
+			const Json* found = resolvePointerPtr(pointer);
+			return found ? *found : Json(Type::Error);
+		}
+
+		// Read-only reference to the node a pointer addresses.  The returned reference
+		// is the error sentinel when the pointer does not resolve, so callers that need
+		// to distinguish use findPtrAt()/at() instead.
+		const Json& atRef(string_view pointer) const {
+			if (const Json* found = resolvePointerPtr(pointer))
+				return *found;
+			return errorSentinel();
+		}
+
+		// Stable node handed out by reference for "not found". thread_local, so two
+		// threads never observe each other's sentinel.
+		static const Json& errorSentinel() {
+			static thread_local const Json sentinel(Type::Error);
+			return sentinel;
+		}
+
+		// ---------------------------------------------------------------------------
+		// Non-throwing accessors.  The target is only written when the lookup succeeds,
+		// and the requested kind must match the stored one (a string is never parsed for
+		// try_get(int&) - use toInt() when that conversion is what you want).
+		// ---------------------------------------------------------------------------
+		template <typename T>
+		bool try_get(const string& key, T& out) const {
+			const Json* found = resolveMemberPtr(key);
+			if (!found)
+				return false;
+
+			if constexpr (std::is_same<T, bool>::value) {
+				if (!found->isTrue() && !found->isFalse())
+					return false;
+				out = found->isTrue();
+				return true;
+			} else if constexpr (std::is_same<T, string>::value) {
+				if (!found->isString())
+					return false;
+				out = found->valueString.str();
+				return true;
+			} else if constexpr (std::is_arithmetic<T>::value) {
+				if (!found->isNumber())
+					return false;
+				out = static_cast<T>(found->valueNumber);
+				return true;
+			} else if constexpr (detail::has_adl_from_json<T>::value) {
+				T value{};
+				from_json(*found, value);
+				out = std::move(value);
+				return true;
+			} else {
+				static_assert(detail::has_adl_from_json<T>::value,
+					"try_get needs an arithmetic type, std::string, bool, or a type with an ADL from_json");
+				return false;
+			}
+		}
+
+		std::optional<int> try_int(const string& key) const {
+			int value = 0;
+			return try_get(key, value) ? std::optional<int>(value) : std::nullopt;
+		}
+
+		std::optional<double> try_double(const string& key) const {
+			double value = 0;
+			return try_get(key, value) ? std::optional<double>(value) : std::nullopt;
+		}
+
+		std::optional<string> try_string(const string& key) const {
+			string value;
+			return try_get(key, value) ? std::optional<string>(std::move(value)) : std::nullopt;
+		}
+
+		// ---------------------------------------------------------------------------
+		// Pointer writes.  Delegates to the JSON Patch engine so that creation,
+		// replacement and array-append ("-") follow RFC 6902 "add" exactly; the document
+		// is only modified when the operation succeeds, so a failing setAt leaves it
+		// untouched.
+		// ---------------------------------------------------------------------------
+		bool setAt(const string& pointer, const Json& value, string& err) {
+			err.clear();
+			Json operation;
+			operation.add("op", "add");
+			operation.add("path", pointer);
+			operation.add("value", value);
+
+			Json operations(JsonType::Array);
+			operations.add(std::move(operation));
+
+			Json result = applyPatch(operations, err);
+			if (result.isError())
+				return false;
+			*this = std::move(result);
+			return true;
+		}
+
+		bool setAt(const string& pointer, const Json& value) {
+			string err;
+			return setAt(pointer, value, err);
+		}
+
+		// Constructs an array from values.  (Brace construction such as `Json{...}` is
+		// deliberately left to the object form, so no ambiguity is introduced.)
+		static Json array(std::initializer_list<Json> values) {
+			Json result(JsonType::Array);
+			for (const Json& value : values)
+				result.add(value);
+			return result;
 		}
 
 		bool operator==(const Json& other) const {
 			if (this->type != other.type)
 				return false;
-			switch (this->type) {
-			case Type::Error:
-			case Type::False:
-			case Type::True:
-			case Type::Null:
-				return true;
-			case Type::Number:
-				return this->valueNumber == other.valueNumber;
-			case Type::String:
-				return this->valueString == other.valueString;
-			case Type::Object:
-				return equalsObject(other);
-			case Type::Array:
-				return equalsArray(other);
-			}
-			return false;
+			// Reject unequal containers before any comparison bookkeeping is created, so a
+			// size mismatch costs one walk per side and no allocation.
+			if (this->type == Type::Object && this->childCount() != other.childCount())
+				return false;
+			return equalsIterative(other);
 		}
 
 		bool operator!=(const Json& other) const {
@@ -2095,7 +2855,7 @@ namespace ZJSON {
 				Json* cur;         // next node to inspect
 			};
 
-			std::vector<Frame> stk;
+			detail::SmallStack<Frame, 64> stk;
 			stk.push_back({ container, nullptr, start });
 
 			while (!stk.empty()) {
@@ -2249,27 +3009,41 @@ namespace ZJSON {
 				self->child = node;
 				self->lastChild = node;
 			}
-			// Invalidate keymap so it will be lazily rebuilt on next operator[]
-			if (self->keymap) { delete self->keymap; self->keymap = nullptr; }
+
+			// Keep the lazy key index in step with the chain. Appending used to drop the
+			// whole index, which made add/lookup interleaving quadratic; a single insert
+			// has the same meaning as rebuilding it (later duplicates win) and is O(1).
+			if (self->keymap && self->type == Type::Object)
+				(*self->keymap)[node->name.str()] = node;
 		}
 
-		void deleteJson(Json* obj) {		//all json type is value type
-			if (!obj) return;
+		// Releases a node and its whole subtree. The block that the node came from is
+		// returned to this thread's pool, so this is deliberately not recursive: a deep
+		// document must be destroyable without growing the call stack.
+		static void deleteJson(Json* obj) {
+			if (!obj)
+				return;
+
+			// Child chains still waiting to be released. The vector stays empty for leaf
+			// nodes (the common case), so releasing a single node allocates nothing.
+			detail::SmallStack<Json*, 64> pending;
 			Json* cur = obj;
-			Json* follow = obj;
-			do {
-				cur = follow;
-				follow = follow->brother;
-				if (cur->type == Type::Object || cur->type == Type::Array) {
-					if (cur->child) {
-						deleteJson(cur->child);
-						cur->child = nullptr;
-					}
+			for (;;) {
+				while (cur) {
+					Json* next = cur->brother;
+					if ((cur->type == Type::Object || cur->type == Type::Array) && cur->child)
+						pending.push_back(cur->child);
+					if (cur->keymap) { delete cur->keymap; cur->keymap = nullptr; }
+					cur->child = nullptr;
+					cur->brother = nullptr;
+					delete cur;
+					cur = next;
 				}
-				if (cur->keymap) { delete cur->keymap; cur->keymap = nullptr; }
-				delete cur;
-				cur = nullptr;
-			} while (follow);
+				if (pending.empty())
+					return;
+				cur = pending.back();
+				pending.pop_back();
+			}
 		}
 
 		// Lazily build a keymap of all immediate children (Object keys only).
@@ -2278,7 +3052,7 @@ namespace ZJSON {
 		void buildKeymap() const {
 			if (keymap) { delete keymap; keymap = nullptr; }
 			keymap = new std::unordered_map<string, Json*>();
-			keymap->reserve(16);
+			keymap->reserve(childCount());
 			Json* cur = child;
 			while (cur) {
 				(*keymap)[cur->name.str()] = cur;
@@ -2301,28 +3075,41 @@ namespace ZJSON {
 				return *cur;
 		}
 
-		// Deep-search fallback used by operator[](const string&) when the direct
-		// key index misses: returns a copy of the first *object member* (pre-order,
-		// any depth) whose key equals `key`. Array elements have no key, so they
-		// can never match - which also keeps the empty key unambiguous.
-		// The walk is iterative so that deep documents cannot overflow the stack.
-		Json find(const string& key) const {
-			std::vector<const Json*> stk;
-			stk.push_back(this);
+		// Deep-search fallback used by operator[]/findPtr when the direct key index
+		// misses: the first *object member* whose key equals `key`, in document order
+		// (pre-order: a container is explored before the siblings that follow it).
+		// Array elements have no key, so they can never match - which also keeps the
+		// empty key unambiguous.  Iterative, so deep documents cannot overflow the
+		// stack, and a frame remembers where in a member chain the walk stopped.
+		const Json* findPtrDeep(string_view key) const {
+			struct Frame {
+				const Json* container;
+				const Json* next;
+			};
+
+			detail::SmallStack<Frame, 64> stk;
+			stk.push_back({ this, this->child });
 			while (!stk.empty()) {
-				const Json* node = stk.back();
-				stk.pop_back();
-				if (node->type != Type::Object && node->type != Type::Array)
+				Frame& frame = stk.back();
+				if (!frame.next) {
+					stk.pop_back();
 					continue;
-				const bool isObject = (node->type == Type::Object);
-				for (const Json* child = node->child; child; child = child->brother) {
-					if (isObject && child->name == key)
-						return *child;
-					if (child->type == Type::Object || child->type == Type::Array)
-						stk.push_back(child);
 				}
+
+				const Json* child = frame.next;
+				frame.next = child->brother;
+
+				if (frame.container->type == Type::Object && child->name == key)
+					return child;
+				if ((child->type == Type::Object || child->type == Type::Array) && child->child)
+					stk.push_back({ child, child->child });
 			}
-			return Json(Type::Error);
+			return nullptr;
+		}
+
+		Json find(const string& key) const {
+			const Json* found = findPtrDeep(key);
+			return found ? *found : Json(Type::Error);
 		}
 
 		static inline string esc(char c) {
@@ -3128,4 +3915,14 @@ namespace std {
 	struct tuple_element<1, ZJSON::JsonConstEntry> {
 		using type = const ZJSON::Json;
 	};
+
+	// Note on element access.
+	//
+	// The tuple protocol above (tuple_size + tuple_element specialisations, which the
+	// standard does allow) plus the ADL-findable ZJSON::get are what structured bindings
+	// use, so `for (auto& [key, value] : json)` works.  A `std::get<N>(entry)` call is
+	// deliberately NOT provided: std::get's primary templates are declared for
+	// std::pair/std::tuple, so no valid specialisation exists for our own types, and
+	// merely adding overloads to namespace std would be undefined behaviour.  Write
+	// `using std::get; get<0>(entry);` when a named form is wanted.
 }

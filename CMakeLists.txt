@@ -205,6 +205,13 @@ if (CMAKE_ZJSON_ENABLE_TEST)
     target_link_libraries(test_parse_coverage gtest gtest_main)
     add_test(NAME test_parse_coverage COMMAND test_parse_coverage)
 
+    # Plan-completion suite (R1/R3/R4/R5): reference access, streaming dump,
+    # iterative deep-document paths, pointer writes, try_get.
+    add_executable(test_advanced tests/test_advanced.cpp)
+    zjson_set_output_dir(test_advanced)
+    target_link_libraries(test_advanced gtest gtest_main Threads::Threads)
+    add_test(NAME test_advanced COMMAND test_advanced)
+
     # The node pool is intentionally process-lifetime, so LeakSanitizer must be told
     # to ignore it. src/zjson.hpp does that at runtime (__lsan_ignore_object) and
     # tests/lsan.supp is the fallback for toolchains where that path is not compiled.

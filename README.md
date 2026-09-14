@@ -134,6 +134,34 @@ Api list
 - string getValueType()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//return value's type in string
 - Json getAndRemove(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
 - std::vector<std::string> getAllKeys()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
+
+Additional interface (2026-09-14)
+
+- const Json& atRef(string_view pointer)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//RFC 6901 pointer as a reference; no copy is made (error sentinel on failure)
+- Json* findPtr(string_view key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//mutable pointer to a member (direct first, then the deep fallback)
+- Json* findPtrAt(string_view pointer)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//mutable pointer addressed by pointer (nullptr when absent)
+- bool setAt(string pointer, const Json& value[, string& err])&emsp;//write through a pointer (RFC 6902 "add" semantics; document unchanged on failure)
+- template&lt;typename T&gt; bool try_get(const string& key, T& out)&emsp;//non-throwing accessor; the target is only written on success
+- std::optional&lt;int/double/string&gt; try_int/try_double/try_string(const string& key)
+- static Json array(std::initializer_list&lt;Json&gt; values)&emsp;&emsp;&emsp;&emsp;//array construction without `Json{...}` ambiguity
+- std::ostream& dumpTo(std::ostream& out, int indent = 0)&emsp;&emsp;&emsp;//stream the document instead of building the text first
+- static Json ParseJson(std::string&& input, std::string& errMsg)&emsp;//takes ownership of the input buffer (no copy)
+
+Semantics worth knowing
+
+- `operator[]` returns a **copy** (a member's subtree is deep-copied). Use `findPtr`/`findPtrAt`/`atRef` to read or modify in place.
+- The deep-search fallback used when a key is not a direct member returns the **first match in document order** (pre-order).
+- Parsing limits nesting to **101 levels**; `cloneChain`/`deleteJson`/pretty printing/comparison are iterative, so a 20000-level document built through the API can be copied, printed, compared and destroyed safely.
+- Equality treats members as a **multiset**: duplicate keys must match in multiplicity and value pairing (parsing itself collapses duplicates; the default policy keeps the last one).
+- Structured bindings work through the ADL `get` + `std::tuple_size`/`std::tuple_element`; `std::get<N>(entry)` is intentionally not provided (adding overloads to `namespace std` for our own types would be undefined behaviour).
+
+## Thread safety and memory
+
+1. **Node allocation and deallocation are thread safe.** Every thread owns a slab pool that is never released, so a node allocated on one thread may be freed on another (or after the allocating thread has exited). No locking is involved.
+2. **A single document is not safe for concurrent readers and writers.** The lazy key index and lazy string materialisation mutate `mutable` state, so share a document across threads only while nobody is modifying it (prefer handing out copies or moving ownership).
+3. **Pool residency is per thread and unbounded by design.** Each thread keeps the slabs it ever used (measured: 64 short-lived threads that each parsed a 40k-node document leave about 440 MB resident for the process lifetime). Reuse worker threads; do not create one thread per request if documents can be large.
+4. **Cross-module ownership is not guaranteed.** The header inlines into every module, so a document passed across DLL boundaries and destroyed after the owning module is unloaded is unsafe.
+5. Deep documents are safe to copy/print/compare/destroy (iterative traversals), but the parser still refuses nesting beyond 101 levels.
     
 ## Examples
 ```
