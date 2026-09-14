@@ -102,6 +102,31 @@ source_group("Head Files" FILES ${HEAD_FILES} )
 
 add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEAD_FILES} )
 
+##--------------------- Output layout ---------------------------------------##
+# Every product of this project (the library demo, the benchmark and the test
+# executables) is written to <source>/bin, so a build always leaves its artifacts
+# in one predictable place.  Third-party subprojects keep their own default
+# locations.  The per-configuration properties are set as well because
+# multi-config generators (MSVC) would otherwise append the configuration name.
+set(ZJSON_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin" CACHE PATH
+    "Directory that receives this project's build products (executables and libraries)")
+function(zjson_set_output_dir target)
+    set_target_properties(${target} PROPERTIES
+        ARCHIVE_OUTPUT_DIRECTORY "${ZJSON_OUTPUT_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY "${ZJSON_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY "${ZJSON_OUTPUT_DIR}"
+    )
+    foreach(zjson_config DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+        set_target_properties(${target} PROPERTIES
+            ARCHIVE_OUTPUT_DIRECTORY_${zjson_config} "${ZJSON_OUTPUT_DIR}"
+            LIBRARY_OUTPUT_DIRECTORY_${zjson_config} "${ZJSON_OUTPUT_DIR}"
+            RUNTIME_OUTPUT_DIRECTORY_${zjson_config} "${ZJSON_OUTPUT_DIR}"
+        )
+    endforeach()
+endfunction()
+
+zjson_set_output_dir(${PROJECT_NAME})
+
 ##--------------------- Shared dependencies ----------------------------------##
 # Both the unit tests and the benchmark use std::thread (cross-thread node pool
 # coverage and the concurrency scaling measurement).
@@ -116,52 +141,67 @@ if (CMAKE_ZJSON_ENABLE_TEST)
     include_directories(thirds/googletest-1.14.0/googletest/include)
 
     add_executable(test_test tests/test_test.cpp)
+    zjson_set_output_dir(test_test)
     target_link_libraries(test_test gtest gtest_main)
     add_test(NAME test_test COMMAND test_test)
 
     add_executable(test_object tests/test_object.cpp)
+    zjson_set_output_dir(test_object)
     target_link_libraries(test_object gtest gtest_main)
     add_test(NAME test_object COMMAND test_object)
 
     add_executable(test_array tests/test_array.cpp)
+    zjson_set_output_dir(test_array)
     target_link_libraries(test_array gtest gtest_main)
     add_test(NAME test_array COMMAND test_array)
 
     add_executable(test_parse tests/test_parse.cpp)
+    zjson_set_output_dir(test_parse)
     target_link_libraries(test_parse gtest gtest_main)
     add_test(NAME test_parse COMMAND test_parse)
 
     add_executable(test_more tests/test_more.cpp)
+    zjson_set_output_dir(test_more)
+    # Lets the test find tests/more.json regardless of the working directory.
+    target_compile_definitions(test_more PRIVATE
+        ZJSON_TEST_MORE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/tests/more.json")
     target_link_libraries(test_more gtest gtest_main)
     add_test(NAME test_more COMMAND test_more)
 
     add_executable(test_spec tests/test_spec.cpp)
+    zjson_set_output_dir(test_spec)
     target_link_libraries(test_spec gtest gtest_main)
     add_test(NAME test_spec COMMAND test_spec)
 
     add_executable(test_conformance tests/test_conformance.cpp)
+    zjson_set_output_dir(test_conformance)
     target_link_libraries(test_conformance gtest gtest_main)
     add_test(NAME test_conformance COMMAND test_conformance)
 
     add_executable(test_rfc_cases tests/test_rfc_cases.cpp)
+    zjson_set_output_dir(test_rfc_cases)
     target_link_libraries(test_rfc_cases gtest gtest_main)
     add_test(NAME test_rfc_cases COMMAND test_rfc_cases)
 
     add_executable(test_jsontestsuite tests/test_jsontestsuite.cpp)
+    zjson_set_output_dir(test_jsontestsuite)
     target_link_libraries(test_jsontestsuite gtest gtest_main)
     add_test(NAME test_jsontestsuite COMMAND test_jsontestsuite)
 
     add_executable(test_json_checker tests/test_json_checker.cpp)
+    zjson_set_output_dir(test_json_checker)
     target_link_libraries(test_json_checker gtest gtest_main)
     add_test(NAME test_json_checker COMMAND test_json_checker)
 
     # Full-surface coverage suites: every public API entry point and every
     # documented edge case of the parser / serializer.
     add_executable(test_api_coverage tests/test_api_coverage.cpp)
+    zjson_set_output_dir(test_api_coverage)
     target_link_libraries(test_api_coverage gtest gtest_main Threads::Threads)
     add_test(NAME test_api_coverage COMMAND test_api_coverage)
 
     add_executable(test_parse_coverage tests/test_parse_coverage.cpp)
+    zjson_set_output_dir(test_parse_coverage)
     target_link_libraries(test_parse_coverage gtest gtest_main)
     add_test(NAME test_parse_coverage COMMAND test_parse_coverage)
 
@@ -183,6 +223,7 @@ option(CMAKE_ZJSON_ENABLE_BENCH "Whether to build benchmark" ON)
 option(CMAKE_ZJSON_BENCH_FETCH_THIRD_PARTY "Fetch nlohmann/json, RapidJSON, and simdjson for comparative benchmarks" ON)
 if (CMAKE_ZJSON_ENABLE_BENCH)
     add_executable(bench_zjson bench/bench_main.cpp)
+    zjson_set_output_dir(bench_zjson)
     target_link_libraries(bench_zjson PRIVATE Threads::Threads)
     if(MSVC)
         target_compile_options(bench_zjson PRIVATE $<$<CONFIG:Release>:/O2>)
@@ -202,10 +243,16 @@ if (CMAKE_ZJSON_ENABLE_BENCH)
         target_link_libraries(bench_zjson PRIVATE nlohmann_json::nlohmann_json)
         target_compile_definitions(bench_zjson PRIVATE ZJSON_BENCH_HAS_NLOHMANN=1)
 
+        # RapidJSON has had no release since v1.1.0 (2016), and v1.1.0 does not
+        # compile with modern compilers: its GenericStringRef::operator= assigns to
+        # const-qualified members, which clang >= 19 and GCC >= 14 reject
+        # ("cannot assign to non-static data member 'length' with const-qualified
+        # type").  Pin the master commit that removed that ill-formed body, fetched
+        # as an archive so the benchmark still uses a reproducible snapshot.
         FetchContent_Declare(
             rapidjson
-            GIT_REPOSITORY https://github.com/Tencent/rapidjson.git
-            GIT_TAG v1.1.0)
+            URL https://github.com/Tencent/rapidjson/archive/24b5e7a8b27f42fa16b96fc70aade9106cf7102f.tar.gz
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
         FetchContent_GetProperties(rapidjson)
         if(NOT rapidjson_POPULATED)
             FetchContent_Populate(rapidjson)

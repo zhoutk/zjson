@@ -7,7 +7,14 @@ using namespace ZJSON;
 TEST(TestMore, test_more_1) {
 	Json config;
 	bool loaded = false;
+	// The fixture lives in the source tree while the executable may be run from
+	// anywhere (products are written to <source>/bin and the build directory can sit
+	// outside the repository), so the configured source directory is tried first and
+	// the historical relative candidates are kept as a fallback.
 	const char* candidates[] = {
+#ifdef ZJSON_TEST_MORE_PATH
+		ZJSON_TEST_MORE_PATH,
+#endif
 		"tests/more.json",
 		"../tests/more.json",
 		"../../tests/more.json",

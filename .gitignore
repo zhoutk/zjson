@@ -16,3 +16,4 @@ Makefile
 out/
 Testing/
 .vscode/
+bin/
