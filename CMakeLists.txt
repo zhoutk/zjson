@@ -220,7 +220,14 @@ endif()
 
 ##--------------------- Benchmark -------------------------------------------##
 option(CMAKE_ZJSON_ENABLE_BENCH "Whether to build benchmark" ON)
-option(CMAKE_ZJSON_BENCH_FETCH_THIRD_PARTY "Fetch nlohmann/json, RapidJSON, and simdjson for comparative benchmarks" ON)
+# The comparative benchmark can measure against nlohmann/json, RapidJSON and
+# simdjson, but those are only useful when the numbers are being refreshed: the
+# library and every unit test build without them, and fetching them costs ~130 MB
+# at configure time.  Opt in explicitly with
+#   cmake --preset clang-rlz -DCMAKE_ZJSON_BENCH_FETCH_THIRD_PARTY=ON
+# when reproducing the comparison tables in docs/性能测试报告.md; otherwise the
+# benchmark reports zjson's own numbers only.
+option(CMAKE_ZJSON_BENCH_FETCH_THIRD_PARTY "Fetch nlohmann/json, RapidJSON, and simdjson for comparative benchmarks" OFF)
 if (CMAKE_ZJSON_ENABLE_BENCH)
     add_executable(bench_zjson bench/bench_main.cpp)
     zjson_set_output_dir(bench_zjson)
