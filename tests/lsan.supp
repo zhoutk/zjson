@@ -1,0 +1,12 @@
+# LeakSanitizer suppressions for the zjson test suite.
+#
+# The Json node pool intentionally keeps its slabs for the whole process lifetime
+# (see jsonNodeAllocator in src/zjson.hpp): nodes may be freed on a different
+# thread - or in a different module that inlined the header - than the one that
+# allocated them, so releasing a slab at thread exit would leave those blocks
+# dangling. The header tells LeakSanitizer about this at runtime through
+# __lsan_ignore_object(); this file is the belt-and-braces fallback for builds
+# where that in-code exemption is not compiled in (for example a system compiler
+# whose runtime does not provide the LSAN interface header).
+leak:SlabAllocator
+leak:jsonNodeAllocator

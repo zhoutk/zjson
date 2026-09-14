@@ -16,6 +16,7 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifndef ZJSON_BENCH_HAS_NLOHMANN
@@ -258,6 +259,85 @@ void bench_zjson_stringify_hotspots(std::vector<BenchResult>& results) {
     }));
 }
 
+// ---------------------------------------------------------------------------
+// Node pool cost diagnostics.
+//
+// Every Json node create/destroy goes through the shared pool, so this section
+// isolates (a) the raw cost of one create+destroy pair in a tight single-threaded
+// churn and (b) the same parse+stringify workload run by one thread vs several,
+// which exposes contention on the pool. These are allocator diagnostics rather
+// than library-vs-library comparisons, hence the separate category.
+// ---------------------------------------------------------------------------
+double run_concurrent_workload(const Dataset& ds, int threads, int itersPerThread) {
+    auto worker = [&ds, itersPerThread]() {
+        for (int i = 0; i < itersPerThread; ++i) {
+            std::string err;
+            ZJSON::Json parsed = ZJSON::Json::ParseJsonStrict(ds.json, err);
+            std::string out = parsed.toString();
+            consume(out.size() + parsed.getValueType().size());
+        }
+    };
+
+    std::vector<std::thread> pool;
+    pool.reserve(static_cast<size_t>(threads));
+    const auto t0 = Clock::now();
+    for (int t = 0; t < threads; ++t)
+        pool.emplace_back(worker);
+    for (auto& w : pool)
+        w.join();
+    const auto t1 = Clock::now();
+    return std::chrono::duration<double, std::milli>(t1 - t0).count();
+}
+
+void bench_zjson_pool_cost(const std::vector<Dataset>& datasets, std::vector<BenchResult>& results) {
+    std::cout << std::endl << "=== zjson node pool cost (allocator diagnostics) ===" << std::endl;
+
+    // (a) tight single-threaded create/destroy churn: pure pool traffic.
+    const int nodesPerRound = 20000;
+    const int rounds = 20;
+    auto churn = [&]() {
+        ZJSON::Json doc;
+        for (int i = 0; i < nodesPerRound; ++i)
+            doc.add("k", i);
+        consume(doc.size() + 1);
+        doc.clear();
+    };
+    churn();                                            // warm the pool up
+    const auto c0 = Clock::now();
+    for (int r = 0; r < rounds; ++r)
+        churn();
+    const auto c1 = Clock::now();
+    const double churn_ms = std::chrono::duration<double, std::milli>(c1 - c0).count();
+    const double nodes = static_cast<double>(nodesPerRound) * rounds;
+    std::cout << "churn            : " << std::fixed << std::setprecision(2)
+              << (churn_ms * 1e6 / nodes) << " ns per node create+destroy ("
+              << static_cast<long long>(nodes) << " nodes in " << std::setprecision(1)
+              << churn_ms << " ms)" << std::endl;
+
+    // (b) parse+stringify, 1 thread vs several: the ratio shows pool contention.
+    const Dataset& ds = datasets.back();
+    const int itersPerThread = 3;
+    const unsigned hw = std::thread::hardware_concurrency();
+    const int threads = static_cast<int>(hw == 0 ? 2u : std::min(4u, hw));
+
+    const double st_ms = run_concurrent_workload(ds, 1, itersPerThread);
+    const double mt_ms = run_concurrent_workload(ds, threads, itersPerThread);
+    const double per_thread_mb = static_cast<double>(ds.json.size()) / (1024.0 * 1024.0);
+    const double st_mb_s = per_thread_mb * itersPerThread / (st_ms / 1000.0);
+    const double mt_mb_s = per_thread_mb * itersPerThread * threads / (mt_ms / 1000.0);
+    const double scaling = (mt_ms > 0.0) ? (st_ms * threads / mt_ms) : 0.0;
+
+    std::cout << "parse+stringify  : 1 thread " << std::setprecision(2) << std::setw(7) << st_mb_s
+              << " MB/s | " << threads << " threads " << std::setw(7) << mt_mb_s
+              << " MB/s aggregate (scaling x" << std::setprecision(2) << scaling << ")" << std::endl;
+
+    results.push_back({ "zjson_pool", "zjson", "parse+stringify_st", ds.name,
+                        ds.json.size() * static_cast<size_t>(itersPerThread), itersPerThread, st_ms, st_mb_s });
+    results.push_back({ "zjson_pool", "zjson", "parse+stringify_mt", ds.name,
+                        ds.json.size() * static_cast<size_t>(itersPerThread) * static_cast<size_t>(threads),
+                        itersPerThread * threads, mt_ms, mt_mb_s });
+}
+
 #if ZJSON_BENCH_HAS_NLOHMANN
 void bench_nlohmann(const std::vector<Dataset>& datasets, std::vector<BenchResult>& results) {
     for (const auto& ds : datasets) {
@@ -382,6 +462,11 @@ int main(int argc, char* argv[]) {
     }
 
     results.insert(results.end(), hotspotResults.begin(), hotspotResults.end());
+
+    // Node pool cost (single-thread churn + concurrency scaling); pushes rows under
+    // the "zjson_pool" category and prints its own diagnostics table.
+    bench_zjson_pool_cost(datasets, results);
+
     write_csv(csvPath, results);
     if (!csvPath.empty())
         std::cout << "csv=" << csvPath << std::endl;

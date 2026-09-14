@@ -25,9 +25,34 @@
 #include <climits>
 #include <cstdlib>
 #include <limits>
-#include <mutex>
 #include <new>
 #include <utility>
+
+// ---------------------------------------------------------------------------
+// LeakSanitizer support for the node pool.
+//
+// The pool deliberately keeps its slabs for the whole process lifetime (see
+// jsonNodeAllocator below), so LeakSanitizer has to be told that this memory is
+// expected to stay resident instead of reporting it as a leak. LeakSanitizer
+// does not exist on Windows even when AddressSanitizer is enabled, and calling
+// into it without the runtime linked would fail at link time, so the exemption
+// is compiled only where it is actually available.
+// ---------------------------------------------------------------------------
+#if defined(__SANITIZE_ADDRESS__)
+#  define ZJSON_ASAN_DETECTED 1
+#elif defined(__has_feature)
+#  if __has_feature(address_sanitizer)
+#    define ZJSON_ASAN_DETECTED 1
+#  endif
+#endif
+
+#if defined(ZJSON_ASAN_DETECTED) && !defined(_WIN32) && defined(__has_include)
+#  if __has_include(<sanitizer/lsan_interface.h>)
+#    include <sanitizer/lsan_interface.h>
+#    define ZJSON_LSAN_EXEMPTION 1
+#  endif
+#endif
+#undef ZJSON_ASAN_DETECTED
 
 namespace ZJSON {
 	using std::string;
@@ -168,17 +193,41 @@ namespace ZJSON {
 			operator string() const { return str(); }
 		};
 
+		// The node pool keeps its slabs for the whole process lifetime on purpose, so
+		// LeakSanitizer is explicitly told about them (no-op wherever LSAN is absent).
+		inline void markPoolMemoryResident(void* block) noexcept {
+#ifdef ZJSON_LSAN_EXEMPTION
+			__lsan_ignore_object(block);
+#else
+			(void)block;
+#endif
+		}
+#undef ZJSON_LSAN_EXEMPTION
+
+		// Per-thread slab pool for Json nodes.
+		//
+		// BlockSize is the node size, so the "slab block or oversized block" decision is
+		// a compile-time comparison that holds on every thread - including a thread that
+		// frees a node allocated elsewhere without ever having allocated one itself.
+		template <size_t BlockSize>
 		class SlabAllocator {
 			struct FreeNode { FreeNode* next; };
 			static constexpr size_t blocksPerSlab = 1024;
 
-			std::mutex mutex_;
-			size_t blockSize = 0;
+			static constexpr size_t alignUp(size_t value) {
+				const size_t alignment = alignof(std::max_align_t);
+				return ((value + alignment - 1) / alignment) * alignment;
+			}
+
+			static constexpr size_t blockSize = alignUp(BlockSize < sizeof(FreeNode) ? sizeof(FreeNode) : BlockSize);
+
 			FreeNode* freeList = nullptr;
 			std::vector<void*> slabs;
 
-			// Free-list helpers. The pool is shared by all threads of the module, so
-			// every caller must already hold mutex_.
+			// The pool belongs to one thread only, so the free-list helpers below need no
+			// locking: they are only ever reached from allocate()/deallocate() of the
+			// owning thread. Blocks freed by another thread simply join this thread's
+			// free list - they stay valid because no slab is ever released.
 			void pushFreeBlock(void* ptr) noexcept {
 				auto* node = static_cast<FreeNode*>(ptr);
 				node->next = freeList;
@@ -194,6 +243,9 @@ namespace ZJSON {
 			void addSlab() {
 				const size_t bytes = blockSize * blocksPerSlab;
 				void* raw = ::operator new(bytes);
+				// Never released on purpose (see jsonNodeAllocator), so it must be reported to
+				// LeakSanitizer as intentionally resident.
+				markPoolMemoryResident(raw);
 				slabs.push_back(raw);
 				char* cursor = static_cast<char*>(raw);
 				for (size_t i = 0; i < blocksPerSlab; ++i) {
@@ -204,15 +256,12 @@ namespace ZJSON {
 			}
 
 		public:
+			// No destructor on purpose: slabs live for the whole process so that blocks
+			// parked in another thread's free list (or in another module that inlined this
+			// header) can never dangle.
 			void* allocate(size_t size) {
-				std::lock_guard<std::mutex> guard(mutex_);
-				if (blockSize == 0) {
-					blockSize = std::max(size, sizeof(FreeNode));
-					const size_t alignment = alignof(std::max_align_t);
-					blockSize = ((blockSize + alignment - 1) / alignment) * alignment;
-				}
-				if (size > blockSize)
-					return ::operator new(size);
+				if (size != blockSize)
+					return ::operator new(size);		// not a node-sized request
 				if (!freeList)
 					addSlab();
 				return popFreeBlock();
@@ -221,38 +270,40 @@ namespace ZJSON {
 			void deallocate(void* ptr, size_t size) noexcept {
 				if (!ptr)
 					return;
-				std::lock_guard<std::mutex> guard(mutex_);
-				// Blocks larger than the slab block size were handed out directly by
-				// ::operator new, so they must be returned the same way. Without this
-				// split a big block would be pushed onto the small-block free list and
-				// later reused at the wrong size (heap corruption).
-				if (size > blockSize) {
+				// Blocks that are not node-sized were handed out directly by ::operator new,
+				// so they must be returned the same way. Without this split such a block would
+				// be pushed onto the node free list and later reused at the wrong size (heap
+				// corruption).
+				if (size != blockSize) {
 					::operator delete(ptr);
 					return;
 				}
 				pushFreeBlock(ptr);
 			}
 
-			// Fallback used only if the compiler selects the unsized deallocation.
-			// Every Json node has the same size, so the free list stays consistent.
+			// Fallback used only if the compiler selects the unsized deallocation; every
+			// block that can reach it is node-sized, so the free list stays consistent.
 			void deallocate(void* ptr) noexcept {
 				if (!ptr)
 					return;
-				std::lock_guard<std::mutex> guard(mutex_);
 				pushFreeBlock(ptr);
 			}
 		};
 
-		// NOTE: the node pool is deliberately process-lifetime (never destroyed) and
-		// shared by all threads of the module.  Json nodes may be freed on a
-		// different thread - or inside a different shared library, since this header
-		// is inlined into every module - than the one that allocated them.  A
-		// thread_local pool destroyed at thread exit would release slabs still
-		// referenced by other threads' Json objects (use-after-free), so the pool is
-		// leaked on purpose: parked blocks always point at live memory.
-		inline SlabAllocator& jsonNodeAllocator() {
-			static SlabAllocator* allocator = new SlabAllocator();
-			return *allocator;
+		// NOTE: the node pool is per-thread and deliberately process-lifetime (its slabs
+		// are never released).  Json nodes may be freed on a different thread - or inside
+		// a different shared library, since this header is inlined into every module -
+		// than the one that allocated them.  Because no slab is ever released, those
+		// parked blocks always point at live memory, which is what makes a thread_local
+		// pool safe here; and because each thread only touches its own pool, no locking
+		// is needed at all.  Measured against the alternative (one shared, mutex
+		// protected pool): 4-thread parse+stringify scaling x2.3~2.9 here versus
+		// x0.42~0.47 there, and a node create+destroy pair costs 25.9~27.6 ns here versus
+		// 42.7~45.4 ns there (docs/评审报告与优化实施方案-2026-09-14.md §8.6).
+		template <size_t BlockSize>
+		inline SlabAllocator<BlockSize>& jsonNodeAllocator() {
+			static thread_local SlabAllocator<BlockSize> allocator;
+			return allocator;
 		}
 
 		template <typename T, typename = void>
@@ -937,18 +988,18 @@ namespace ZJSON {
 		using const_iterator = JsonConstIterator;
 
 		static void* operator new(size_t size) {
-			return detail::jsonNodeAllocator().allocate(size);
+			return detail::jsonNodeAllocator<sizeof(Json)>().allocate(size);
 		}
 
 		// The sized overload is preferred by the compiler for class-specific
-		// deallocation, so the allocator can tell slab blocks and oversized
-		// (::operator new) blocks apart.
+		// deallocation, so the pool can tell slab blocks and oversized
+		// (::operator new) blocks apart on any thread.
 		static void operator delete(void* ptr, size_t size) noexcept {
-			detail::jsonNodeAllocator().deallocate(ptr, size);
+			detail::jsonNodeAllocator<sizeof(Json)>().deallocate(ptr, size);
 		}
 
 		static void operator delete(void* ptr) noexcept {
-			detail::jsonNodeAllocator().deallocate(ptr);
+			detail::jsonNodeAllocator<sizeof(Json)>().deallocate(ptr);
 		}
 
 		Json(JsonType type = JsonType::Object) {

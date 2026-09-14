@@ -102,6 +102,11 @@ source_group("Head Files" FILES ${HEAD_FILES} )
 
 add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEAD_FILES} )
 
+##--------------------- Shared dependencies ----------------------------------##
+# Both the unit tests and the benchmark use std::thread (cross-thread node pool
+# coverage and the concurrency scaling measurement).
+find_package(Threads REQUIRED)
+
 ##--------------------- Build unit tests -----------------------------------##
 option(CMAKE_ZJSON_ENABLE_TEST "Whether to enable unit tests" ON)
 if (CMAKE_ZJSON_ENABLE_TEST)
@@ -152,8 +157,6 @@ if (CMAKE_ZJSON_ENABLE_TEST)
 
     # Full-surface coverage suites: every public API entry point and every
     # documented edge case of the parser / serializer.
-    find_package(Threads REQUIRED)
-
     add_executable(test_api_coverage tests/test_api_coverage.cpp)
     target_link_libraries(test_api_coverage gtest gtest_main Threads::Threads)
     add_test(NAME test_api_coverage COMMAND test_api_coverage)
@@ -162,6 +165,17 @@ if (CMAKE_ZJSON_ENABLE_TEST)
     target_link_libraries(test_parse_coverage gtest gtest_main)
     add_test(NAME test_parse_coverage COMMAND test_parse_coverage)
 
+    # The node pool is intentionally process-lifetime, so LeakSanitizer must be told
+    # to ignore it. src/zjson.hpp does that at runtime (__lsan_ignore_object) and
+    # tests/lsan.supp is the fallback for toolchains where that path is not compiled.
+    if(CMAKE_ZJSON_ENABLE_ASAN AND NOT MSVC AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/lsan.supp")
+        get_property(_zjson_registered_tests DIRECTORY PROPERTY TESTS)
+        if(_zjson_registered_tests)
+            set_tests_properties(${_zjson_registered_tests} PROPERTIES
+                ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/tests/lsan.supp")
+        endif()
+    endif()
+
 endif()
 
 ##--------------------- Benchmark -------------------------------------------##
@@ -169,6 +183,7 @@ option(CMAKE_ZJSON_ENABLE_BENCH "Whether to build benchmark" ON)
 option(CMAKE_ZJSON_BENCH_FETCH_THIRD_PARTY "Fetch nlohmann/json, RapidJSON, and simdjson for comparative benchmarks" ON)
 if (CMAKE_ZJSON_ENABLE_BENCH)
     add_executable(bench_zjson bench/bench_main.cpp)
+    target_link_libraries(bench_zjson PRIVATE Threads::Threads)
     if(MSVC)
         target_compile_options(bench_zjson PRIVATE $<$<CONFIG:Release>:/O2>)
     else()
