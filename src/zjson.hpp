@@ -5,7 +5,6 @@
 #include <vector>
 #include <iostream>
 #include <algorithm>
-#include <limits.h>
 #include <array>
 #include <cstring>
 #include <cmath>
@@ -21,6 +20,11 @@
 #include <deque>
 #include <string_view>
 #include <cstddef>
+#include <cstdint>
+#include <cctype>
+#include <climits>
+#include <cstdlib>
+#include <limits>
 #include <new>
 #include <utility>
 
@@ -30,8 +34,8 @@ namespace ZJSON {
 	using std::move;
 	using std::vector;
 
-	static const int max_depth = 100;
-	static const std::array<string, 8> TYPENAMES{ "Error", "False", "True", "Null", "Number", "String", "Object", "Array" };
+	inline constexpr int max_depth = 100;
+	inline constexpr const char* TYPENAMES[8] = { "Error", "False", "True", "Null", "Number", "String", "Object", "Array" };
 
 	enum class JsonType
 	{
@@ -171,6 +175,18 @@ namespace ZJSON {
 			FreeNode* freeList = nullptr;
 			std::vector<void*> slabs;
 
+			void pushFreeBlock(void* ptr) noexcept {
+				auto* node = static_cast<FreeNode*>(ptr);
+				node->next = freeList;
+				freeList = node;
+			}
+
+			void* popFreeBlock() noexcept {
+				FreeNode* node = freeList;
+				freeList = freeList->next;
+				return node;
+			}
+
 			void addSlab() {
 				const size_t bytes = blockSize * blocksPerSlab;
 				void* raw = ::operator new(bytes);
@@ -199,17 +215,29 @@ namespace ZJSON {
 					return ::operator new(size);
 				if (!freeList)
 					addSlab();
-				FreeNode* node = freeList;
-				freeList = freeList->next;
-				return node;
+				return popFreeBlock();
 			}
 
+			void deallocate(void* ptr, size_t size) noexcept {
+				if (!ptr)
+					return;
+				// Blocks larger than the slab block size were handed out directly by
+				// ::operator new, so they must be returned the same way. Without this
+				// split a big block would be pushed onto the small-block free list and
+				// later reused at the wrong size (heap corruption).
+				if (size > blockSize) {
+					::operator delete(ptr);
+					return;
+				}
+				pushFreeBlock(ptr);
+			}
+
+			// Fallback used only if the compiler selects the unsized deallocation.
+			// Every Json node has the same size, so the free list stays consistent.
 			void deallocate(void* ptr) noexcept {
 				if (!ptr)
 					return;
-				auto* node = static_cast<FreeNode*>(ptr);
-				node->next = freeList;
-				freeList = node;
+				pushFreeBlock(ptr);
 			}
 		};
 
@@ -240,6 +268,65 @@ namespace ZJSON {
 			std::declval<char*>(), std::declval<char*>(), std::declval<T>()))>>
 			: std::true_type {};
 
+		template <typename T, typename = void>
+		struct has_fp_from_chars : std::false_type {};
+
+		template <typename T>
+		struct has_fp_from_chars<T, std::void_t<decltype(std::from_chars(
+			std::declval<const char*>(), std::declval<const char*>(), std::declval<T&>()))>>
+			: std::true_type {};
+
+		// Locale-independent double parsing. std::from_chars never consults
+		// LC_NUMERIC, unlike std::strtod, so "1.5" is not truncated to 1 in
+		// comma-decimal locales. Out-of-range magnitudes keep the historical
+		// strtod behaviour (saturate to +/-inf or 0), which also keeps the
+		// implementation-defined "huge exponent" inputs accepted.
+		inline double parseDoubleImpl(string_view text, std::true_type /*has_from_chars*/) {
+			double value = 0.0;
+			auto res = std::from_chars(text.data(), text.data() + text.size(), value);
+			if (res.ec == std::errc{})
+				return value;
+			string tmp(text);
+			return std::strtod(tmp.c_str(), nullptr);
+		}
+
+		inline double parseDoubleImpl(string_view text, std::false_type /*no_from_chars*/) {
+			string tmp(text);
+			return std::strtod(tmp.c_str(), nullptr);
+		}
+
+		inline double parseDouble(string_view text) {
+			return parseDoubleImpl(text, has_fp_from_chars<double>{});
+		}
+
+		// atof()-compatible "parse a leading number, ignore the rest" used by
+		// Json::toDouble() for string values: leading whitespace is skipped and
+		// values that from_chars rejects (inf / nan / hex) still fall back to atof.
+		inline double parseLeadingDoubleImpl(string_view text, std::true_type /*has_from_chars*/) {
+			double value = 0.0;
+			auto res = std::from_chars(text.data(), text.data() + text.size(), value);
+			if (res.ec == std::errc{})
+				return value;
+			string tmp(text);
+			if (res.ec == std::errc::result_out_of_range)
+				return std::strtod(tmp.c_str(), nullptr);
+			return std::atof(tmp.c_str());
+		}
+
+		inline double parseLeadingDoubleImpl(string_view text, std::false_type /*no_from_chars*/) {
+			string tmp(text);
+			return std::atof(tmp.c_str());
+		}
+
+		inline double parseLeadingDouble(string_view text) {
+			const char* first = text.data();
+			const char* last = first + text.size();
+			while (first != last && std::isspace(static_cast<unsigned char>(*first)))
+				++first;
+			return parseLeadingDoubleImpl(string_view(first, static_cast<size_t>(last - first)),
+				has_fp_from_chars<double>{});
+		}
+
 		template <typename T>
 		inline void appendDoubleImpl(T v, string& out, std::true_type /*has_to_chars*/) {
 			char buf[64];
@@ -262,7 +349,7 @@ namespace ZJSON {
 
 	// Append a JSON-formatted number. NaN/Inf are written as "null" because
 	// RFC 8259 forbids them; callers that wish to reject earlier may do so.
-	static inline void appendNumber(double v, string& out) {
+	inline void appendNumber(double v, string& out) {
 		if (!std::isfinite(v)) {
 			out.append("null");
 			return;
@@ -290,13 +377,13 @@ namespace ZJSON {
 		detail::appendDoubleImpl(v, out, detail::has_fp_to_chars<double>{});
 	}
 
-	static inline void appendControlEscape(unsigned char ch, string& out) {
+	inline void appendControlEscape(unsigned char ch, string& out) {
 		static constexpr char hex[] = "0123456789abcdef";
 		char escaped[6] = { '\\', 'u', '0', '0', hex[ch >> 4], hex[ch & 0x0F] };
 		out.append(escaped, sizeof(escaped));
 	}
 
-	static inline void appendEscapedString(string_view input, string& out) {
+	inline void appendEscapedString(string_view input, string& out) {
 		const char* data = input.data();
 		const size_t length = input.size();
 		size_t chunkStart = 0;
@@ -328,14 +415,14 @@ namespace ZJSON {
 			out.append(data + chunkStart, length - chunkStart);
 	}
 
-	static inline void appendQuotedKey(string_view key, string& out) {
+	inline void appendQuotedKey(string_view key, string& out) {
 		out.push_back('"');
 		appendEscapedString(key, out);
 		out.append("\":", 2);
 	}
 
 	// UTF-8 byte sequence validator (RFC 3629)
-	static inline bool validate_utf8_bytes(const string& s, size_t& errorPos) {
+	inline bool validate_utf8_bytes(const string& s, size_t& errorPos) {
 		size_t len = s.size();
 		size_t pos = 0;
 		while (pos < len) {
@@ -417,6 +504,32 @@ namespace ZJSON {
 			return count;
 		}
 
+		// Text comparison used by indexOf(): plain strings compare their raw value,
+		// every other kind compares the text toString() would produce. Avoids the
+		// temporary std::string that a plain toString() comparison would allocate
+		// for each element (the dominant cost for large arrays).
+		bool serializedLeafEquals(const Json* node, string_view text) const {
+			switch (node->type) {
+			case Type::String:
+				return node->valueString.view() == text;
+			case Type::Number: {
+				string tmp;
+				appendNumber(node->valueNumber, tmp);
+				return string_view(tmp.data(), tmp.size()) == text;
+			}
+			case Type::True:
+				return text == "true";
+			case Type::False:
+				return text == "false";
+			case Type::Null:
+				return text == "null";
+			case Type::Error:
+				return text.empty();
+			default:
+				return node->toString() == text;
+			}
+		}
+
 		Json* directChildByKey(string_view key) {
 			for (Json* cur = this->child; cur; cur = cur->brother) {
 				if (cur->name == key)
@@ -475,6 +588,23 @@ namespace ZJSON {
 			if (!this->child)
 				this->lastChild = nullptr;
 			if (this->keymap) { delete this->keymap; this->keymap = nullptr; }
+		}
+
+		// Detaches `node` from `container`'s child chain. `prev` is the node that
+		// precedes `node` in that chain, or nullptr when `node` is the first child.
+		// Repairs the tail pointer (lastChild) and invalidates the lazy key index.
+		static void unlinkChild(Json* container, Json* prev, Json* node) {
+			if (prev)
+				prev->brother = node->brother;
+			else
+				container->child = node->brother;
+			node->brother = nullptr;
+			if (container->lastChild == node)
+				container->lastChild = prev;   // nullptr when the chain is now empty
+			if (container->keymap) {
+				delete container->keymap;
+				container->keymap = nullptr;
+			}
 		}
 
 		static bool decodePointerToken(const string& token, string& decoded) {
@@ -708,6 +838,9 @@ namespace ZJSON {
 
 		static Json parse(const std::string& in, std::string& err, const ParseOptions& options = ParseOptions{})
 		{
+			// A successful parse must not leave a stale message behind, so the caller's
+			// error string is cleared up front and only filled on failure.
+			err.clear();
 			if (options.validateUtf8) {
 				size_t errPos = 0;
 				if (!validate_utf8_bytes(in, errPos)) {
@@ -798,11 +931,14 @@ namespace ZJSON {
 			return detail::jsonNodeAllocator().allocate(size);
 		}
 
-		static void operator delete(void* ptr) noexcept {
-			detail::jsonNodeAllocator().deallocate(ptr);
+		// The sized overload is preferred by the compiler for class-specific
+		// deallocation, so the allocator can tell slab blocks and oversized
+		// (::operator new) blocks apart.
+		static void operator delete(void* ptr, size_t size) noexcept {
+			detail::jsonNodeAllocator().deallocate(ptr, size);
 		}
 
-		static void operator delete(void* ptr, size_t) noexcept {
+		static void operator delete(void* ptr) noexcept {
 			detail::jsonNodeAllocator().deallocate(ptr);
 		}
 
@@ -812,6 +948,7 @@ namespace ZJSON {
 			this->lastChild = nullptr;
 			this->keymap = nullptr;
 			this->type = (Type)type;
+			this->valueNumber = 0;
 		}
 
 		template<typename T, typename std::enable_if<std::is_arithmetic<typename std::decay<T>::type>::value && !std::is_same<typename std::decay<T>::type, bool>::value && !std::is_same<typename std::decay<T>::type, float>::value && !std::is_same<typename std::decay<T>::type, double>::value, int>::type = 0> Json(const T& value) {
@@ -915,7 +1052,9 @@ namespace ZJSON {
 		Json(Json&& rhs) noexcept {
 			this->type = rhs.type;
 			this->child = rhs.child;
-			this->brother = rhs.brother;
+			// A moved-to node is detached: inheriting rhs's sibling link would drag
+			// the source chain into whatever container the node is linked into next.
+			this->brother = nullptr;
 			this->lastChild = rhs.lastChild;
 			this->keymap = rhs.keymap;
 			this->name = std::move(rhs.name);
@@ -994,10 +1133,18 @@ namespace ZJSON {
 		Json& operator = (const Json& origin) {
 			if (this == &origin)
 				return(*this);
+			// A member node owns its key: assigning a nameless value into a named
+			// member keeps the key (the same rule overwritePreservingLinks() applies).
+			// Without this, `for (auto& [k, v] : obj) v = Json(1);` would silently
+			// turn every member into the empty key.
+			const bool keepName = !this->name.empty() && origin.name.empty();
+			detail::StoredString savedName;
+			if (keepName)
+				savedName = this->name;
 			releaseChildren();
 			this->brother = nullptr;
 			this->type = origin.type;
-			this->name = origin.name;
+			this->name = keepName ? savedName : origin.name;
 			this->valueString = origin.valueString;
 			this->valueNumber = origin.valueNumber;
 			Json* childTail = nullptr;
@@ -1009,6 +1156,24 @@ namespace ZJSON {
 		Json& operator = (Json&& rhs) noexcept {
 			if (this == &rhs)
 				return(*this);
+			const bool keepName = !this->name.empty() && rhs.name.empty();
+			if (keepName) {
+				detail::StoredString savedName = std::move(this->name);
+				releaseChildren();
+				this->type = rhs.type;
+				this->child = rhs.child;
+				this->brother = rhs.brother;
+				this->lastChild = rhs.lastChild;
+				this->keymap = rhs.keymap;
+				this->name = std::move(savedName);
+				this->valueString = std::move(rhs.valueString);
+				this->valueNumber = rhs.valueNumber;
+				rhs.child = nullptr;
+				rhs.brother = nullptr;
+				rhs.lastChild = nullptr;
+				rhs.keymap = nullptr;
+				return(*this);
+			}
 			releaseChildren();
 			this->type = rhs.type;
 			this->child = rhs.child;
@@ -1040,18 +1205,18 @@ namespace ZJSON {
 		}
 
 		Json operator[](const string& key) const {
-			if (this->type != Type::Object || key.empty() || !this->child)
+			if (this->type != Type::Object || !this->child)
 				return Json(Type::Error);
 			// Fast path: keymap lookup for O(1) direct-child access
 			if (!this->keymap) buildKeymap();
 			auto it = this->keymap->find(key);
 			if (it != this->keymap->end()) return *(it->second);
 			// Slow path: deep search for nested keys (uncommon)
-			return this->child->find(key);
+			return this->find(key);
 		}
 
 		bool contains(const string& key) const {
-			if (this->type != Type::Object || key.empty() || !this->child) return false;
+			if (this->type != Type::Object || !this->child) return false;
 			if (!this->keymap) buildKeymap();
 			return this->keymap->count(key) > 0;
 		}
@@ -1122,7 +1287,7 @@ namespace ZJSON {
 			if (this->type == Type::Object) {
 				Json* cur = this->child;
 				while (cur) {
-					if (cur->type != Type::Error && cur->name.length() > 0)
+					if (cur->type != Type::Error)
 						rs.push_back(cur->name.str());
 					cur = cur->brother;
 				}
@@ -1140,47 +1305,35 @@ namespace ZJSON {
 
 		template<typename T> Json& add(T value) {
 			if (this->type == Type::Array)
-				return add("", value);
+				return this->addNamed("", Json(value));
 			else
 				return (*this);
 		}
 
 		Json& add(const Json& value) {
 			if (this->type == Type::Array)
-				return add("", value);
+				return this->addNamed("", Json(value));
 			else
 				return (*this);
 		}
 
 		Json& add(Json&& value) {
-			return add("", std::move(value));
+			if (this->type == Type::Array)
+				return this->addNamed("", std::move(value));
+			else
+				return (*this);
 		}
 
 		template<typename T> Json& add(string name, T value) {
-			if ((!name.empty() && this->type == Type::Object) || this->type == Type::Array) {
-				Json* node = new Json(value);
-				node->name = this->type == Type::Object ? name : "";
-				appendNodeToJson(node);
-			}
-			return (*this);
+			return this->addNamed(std::move(name), Json(value));
 		}
 
 		Json& add(string name, const Json& value) {
-			if ((!name.empty() && this->type == Type::Object) || this->type == Type::Array) {
-				Json* node = new Json(value);
-				node->name = this->type == Type::Object ? name : "";
-				appendNodeToJson(node);
-			}
-			return (*this);
+			return this->addNamed(std::move(name), Json(value));
 		}
 
 		Json& add(string name, Json&& value) {
-			if ((!name.empty() && this->type == Type::Object) || this->type == Type::Array) {
-				Json* node = new Json(std::move(value));
-				node->name = this->type == Type::Object ? name : "";
-				appendNodeToJson(node);
-			}
-			return (*this);
+			return this->addNamed(std::move(name), std::move(value));
 		}
 
 		bool isError() const {
@@ -1644,7 +1797,7 @@ namespace ZJSON {
 			else if (this->isFalse())
 				return 0;
 			else if (this->type == Type::String) {
-				return atof(this->toString().c_str());
+				return detail::parseLeadingDouble(this->valueString.view());
 			}
 			else
 				return 0;
@@ -1688,9 +1841,10 @@ namespace ZJSON {
 			if (this->type == Type::Object && value.type == Type::Object) {
 				Json* cur = value.child;
 				while (cur) {
-					this->remove(cur->name.str());
+					Json* next = cur->brother;
+					this->removeDirectChildrenByKey(cur->name);
 					this->extendItem(cur);
-					cur = cur->brother;
+					cur = next;
 				}
 			}
 			return (*this);
@@ -1704,8 +1858,9 @@ namespace ZJSON {
 					Json* cur = value.child;
 					while (cur)
 					{
+						Json* next = cur->brother;
 						this->extendItem(cur);
-						cur = cur->brother;
+						cur = next;
 					}
 				}
 				else {
@@ -1773,64 +1928,61 @@ namespace ZJSON {
 		}
 
 		Json& insert(int index, const Json& value) {
-			if (this->type == Type::Array) {
-				if (index < 0) {
-					index += this->size();
-					if (index < 0)
-						return (*this);
-				}
-				if (index == 0)
-					return this->push_front(value);
-				else {
-					int ct = 0;
-					Json* pre = this;
-					Json* cur = this->child;
-					while (cur) {
-						if (index == ct++)
-							break;
-						pre = cur;
-						cur = cur->brother;
-					}
-					if (index < ct) {
-						pre->brother = new Json(value);
-						pre->brother->brother = cur;
-						if (!cur) this->lastChild = pre->brother; // inserted at tail
-					}
-					return (*this);
-				}
-			}
-			else
+			if (this->type != Type::Array)
 				return (*this);
+			const int count = this->size();
+			if (index < 0) {
+				index += count;
+				if (index < 0)
+					return (*this);
+			}
+			if (index == 0)
+				return this->push_front(value);
+			if (index > count)
+				return (*this);			// out of index range: no-op (historical behaviour)
+			if (index == count)
+				return this->push_back(value);	// append at the tail
+			int ct = 0;
+			Json* pre = this;
+			Json* cur = this->child;
+			while (cur && index != ct++) {
+				pre = cur;
+				cur = cur->brother;
+			}
+			// 0 < index < count, so cur != nullptr and the tail pointer is unchanged
+			if (cur) {
+				pre->brother = new Json(value);
+				pre->brother->brother = cur;
+			}
+			return (*this);
 		}
 		Json& insert(int index, Json&& value) {
-			if (this->type == Type::Array) {
-				if (index < 0) {
-					index += this->size();
-					if (index < 0)
-						return (*this);
-				}
-				if (index == 0)
-					return this->push_front(std::move(value));
-				else {
-					int ct = 0;
-					Json* pre = this;
-					Json* cur = this->child;
-					while (cur) {
-						if (index == ct++)
-							break;
-						pre = cur;
-						cur = cur->brother;
-					}
-					if (index < ct) {
-						pre->brother = new Json(std::move(value));
-						pre->brother->brother = cur;
-						if (!cur) this->lastChild = pre->brother; // inserted at tail
-					}
-					return (*this);
-				}
-			}
-			else
+			if (this->type != Type::Array)
 				return (*this);
+			const int count = this->size();
+			if (index < 0) {
+				index += count;
+				if (index < 0)
+					return (*this);
+			}
+			if (index == 0)
+				return this->push_front(std::move(value));
+			if (index > count)
+				return (*this);			// out of index range: no-op (historical behaviour)
+			if (index == count)
+				return this->push_back(std::move(value));	// append at the tail
+			int ct = 0;
+			Json* pre = this;
+			Json* cur = this->child;
+			while (cur && index != ct++) {
+				pre = cur;
+				cur = cur->brother;
+			}
+			if (cur) {
+				pre->brother = new Json(std::move(value));
+				pre->brother->brother = cur;
+			}
+			return (*this);
 		}
 
 		Json& clear() {
@@ -1844,60 +1996,63 @@ namespace ZJSON {
 			return (*this);
 		}
 
+		// Removes every descendant whose key equals `key` (pre-order, at any
+		// depth). The node itself is never removed, so a document root survives.
+		// The walk uses an explicit stack: a deeply nested document cannot
+		// overflow the call stack. Every unlink repairs both the sibling chain and
+		// the parent's lastChild tail, and invalidates the parent's key index.
+		//
+		// `self` / `prev` keep the historical three-argument form working: they
+		// start the scan at `self` with `prev` as the node preceding it (nullptr
+		// meaning "first child of the owning container").
 		Json& remove(const string& key, Json* self = nullptr, Json* prev = nullptr)
 		{
-			if (key.empty() || (self == nullptr && this->type != Type::Object))
+			if (self == nullptr && this->type != Type::Object && this->type != Type::Array)
 				return (*this);
-			if (self == nullptr) {
-				// Top-level call: invalidate keymap and lastChild since chain will change
-				if (this->keymap) { delete this->keymap; this->keymap = nullptr; }
-				this->lastChild = nullptr;
-				self = this;
-			}
-			Json* cur = self;
-			Json* pre = self;
-			if (prev)
-				pre = prev;
-			bool found = false;
-			do
-			{
-				if (cur->name == key)
-				{
-					if (pre->type == Type::Array || pre->type == Type::Object) {
-						pre->child = cur->brother;
-					}
-					else if (cur->type == Type::Array || cur->type == Type::Object)
-						pre->brother = cur->brother;
-					else
-						pre->brother = cur->brother;
-					found = true;
-				}
-				else if (cur->type == Type::Object || cur->type == Type::Array)
-				{
-					if (cur->child)
-					{
-						remove(key, cur->child, cur);
-					}
-				}
-				if (found)
-				{
-					auto tmp = pre->brother ? pre->brother->brother : (cur->brother ? cur->brother : nullptr);
-					if (cur->child)
-						deleteJson(cur->child);
-					cur->child = nullptr;
-					cur->brother = nullptr;
-					delete cur;
-					cur = tmp;
-					//pre->brother = cur;
-					found = false;
-				}
-				else
-				{
-					pre = cur;
-					cur = cur->brother;
+
+			Json* start = (self == nullptr) ? this->child : self;
+			Json* startPrev = (self == nullptr) ? nullptr : prev;
+			if (!start)
+				return (*this);
+
+			struct Frame {
+				Json* container;   // owner of the chain currently being scanned
+				Json* prev;        // predecessor of `cur` (nullptr => first child)
+				Json* cur;         // next node to inspect
+			};
+
+			std::vector<Frame> stk;
+			stk.push_back({ this, startPrev, start });
+
+			while (!stk.empty()) {
+				Frame& frame = stk.back();
+				if (!frame.cur) {
+					stk.pop_back();
+					continue;
 				}
 
-			} while (cur);
+				Json* node = frame.cur;
+				// Only object members carry a key: array elements are name-less, so
+				// they are never candidates (matches the "[]" addressing rules).
+				if (frame.container->type == Type::Object && node->name == key) {
+					frame.cur = node->brother;      // advance before unlinking
+					unlinkChild(frame.container, frame.prev, node);
+					deleteJson(node);               // frees the node and its subtree
+					continue;
+				}
+
+				if ((node->type == Type::Object || node->type == Type::Array) && node->child) {
+					// Descend, but remember where to continue this chain. Update the
+					// current frame *before* pushing (push_back may reallocate).
+					frame.prev = node;
+					frame.cur = node->brother;
+					stk.push_back({ node, nullptr, node->child });
+					continue;
+				}
+
+				frame.prev = node;
+				frame.cur = node->brother;
+			}
 			return (*this);
 		}
 
@@ -1943,19 +2098,14 @@ namespace ZJSON {
 		}
 
 		int indexOf(string value) {
-			if (this->type == Type::Array) {
-				int ct = 0;
-				Json* cur = this->child;
-				Json rs(Type::Error);
-				while (cur && cur->toString().compare(value) != 0)
-				{
-					cur = cur->brother;
-					ct++;
-				}
-				return this->size() <= ct ? -1 : ct;
-			}
-			else
+			if (this->type != Type::Array)
 				return -1;
+			int ct = 0;
+			for (Json* cur = this->child; cur; cur = cur->brother, ++ct) {
+				if (serializedLeafEquals(cur, value))
+					return ct;
+			}
+			return -1;
 		}
 
 	private:
@@ -1980,16 +2130,37 @@ namespace ZJSON {
 				break;
 			case Type::Object:
 			case Type::Array:
-				this->add(childName, *cur);
+				// Move the subtree instead of deep-copying it. Every caller owns the node
+				// it passes here (extend/concat take the source by value, the
+				// initializer-list constructor works on a local copy).
+				this->add(childName, std::move(*cur));
+				break;
 			default:
-				;
+				break;
 			}
+		}
+
+		// Inserts `node` as a child. Objects honour the key verbatim - including the
+		// empty key that parsing can produce ({"":1}) - and arrays ignore the key.
+		// Callers that pass no key use the unnamed add() overloads, which already
+		// restrict themselves to arrays.
+		Json& addNamed(string name, Json&& node) {
+			if (this->type != Type::Object && this->type != Type::Array)
+				return (*this);
+			Json* heapNode = new Json(std::move(node));
+			heapNode->name = (this->type == Type::Object) ? std::move(name) : string();
+			appendNodeToJson(heapNode);
+			return (*this);
 		}
 
 		void appendNodeToJson(Json* node, Json* self = nullptr)
 		{
 			if (self == nullptr)
 				self = this;
+			// The incoming node is detached from any previous chain before it becomes
+			// the new tail; otherwise a stale sibling link would splice a foreign list
+			// into this container.
+			node->brother = nullptr;
 			// O(1) append using lastChild tail pointer
 			if (self->lastChild) {
 				self->lastChild->brother = node;
@@ -2027,15 +2198,16 @@ namespace ZJSON {
 			} while (follow);
 		}
 
-		// Lazily build a keymap of all immediate children (Object keys only)
+		// Lazily build a keymap of all immediate children (Object keys only).
+		// Empty keys are indexed too: {"":1} is a legal document and must be
+		// reachable through operator[]/contains as well as through at("/").
 		void buildKeymap() const {
 			if (keymap) { delete keymap; keymap = nullptr; }
 			keymap = new std::unordered_map<string, Json*>();
 			keymap->reserve(16);
 			Json* cur = child;
 			while (cur) {
-				if (!cur->name.empty())
-					(*keymap)[cur->name.str()] = cur;
+				(*keymap)[cur->name.str()] = cur;
 				cur = cur->brother;
 			}
 		}
@@ -2055,49 +2227,28 @@ namespace ZJSON {
 				return *cur;
 		}
 
-		Json find(const string& key, bool notArray = true) {
-			if (this->type == Type::Array || this->type == Type::Object) {
-				if (this->brother) {
-					if (this->brother->name == key)
-						return *(this->brother);
-					else {
-						Json rs = this->brother->find(key, this->brother->type != Type::Array);
-						if (!rs.isError())
-							return rs;
-					}
+		// Deep-search fallback used by operator[](const string&) when the direct
+		// key index misses: returns a copy of the first *object member* (pre-order,
+		// any depth) whose key equals `key`. Array elements have no key, so they
+		// can never match - which also keeps the empty key unambiguous.
+		// The walk is iterative so that deep documents cannot overflow the stack.
+		Json find(const string& key) const {
+			std::vector<const Json*> stk;
+			stk.push_back(this);
+			while (!stk.empty()) {
+				const Json* node = stk.back();
+				stk.pop_back();
+				if (node->type != Type::Object && node->type != Type::Array)
+					continue;
+				const bool isObject = (node->type == Type::Object);
+				for (const Json* child = node->child; child; child = child->brother) {
+					if (isObject && child->name == key)
+						return *child;
+					if (child->type == Type::Object || child->type == Type::Array)
+						stk.push_back(child);
 				}
-				if (this->child) {
-					if (this->child->name == key)
-						return *(this->child);
-					else {
-						Json rs = this->child->find(key, this->type != Type::Array);
-						if (!rs.isError())
-							return rs;
-					}
-				}
-				return Json(Type::Error);
 			}
-			else {
-				Json* cur = this;
-				Json rs(Type::Error);
-				while (cur)
-				{
-					if (notArray && cur->name == key) {
-						return Json(*cur);
-					}
-					else {
-						if (cur->type == Type::Array || cur->type == Type::Object) {
-							if (cur->child) {
-								rs = cur->find(key, cur->type != Type::Array);
-								if (rs.type != Type::Error)
-									break;
-							}
-						}
-						cur = cur->brother;
-					}
-				}
-				return rs;
-			}
+			return Json(Type::Error);
 		}
 
 		static inline string esc(char c) {
@@ -2245,7 +2396,7 @@ namespace ZJSON {
 				}
 
 				if (i == str.size()) {
-					rs.valueNumber = std::strtod(str.c_str() + start_pos, nullptr);
+					rs.valueNumber = detail::parseDouble(string_view(str.data() + start_pos, i - start_pos));
 					return rs;
 				}
 
@@ -2277,7 +2428,7 @@ namespace ZJSON {
 						i++;
 				}
 
-				rs.valueNumber = std::strtod(str.c_str() + start_pos, nullptr);
+				rs.valueNumber = detail::parseDouble(string_view(str.data() + start_pos, i - start_pos));
 				return rs;
 			}
 
@@ -2706,6 +2857,12 @@ namespace ZJSON {
 		Json* ptr;
 		mutable JsonEntry entry;
 	public:
+		using iterator_category = std::forward_iterator_tag;
+		using value_type = JsonEntry;
+		using difference_type = std::ptrdiff_t;
+		using pointer = JsonEntry*;
+		using reference = JsonEntry&;
+
 		explicit JsonIterator(const Json& p) {
 			ptr = p.child;
 			entry.reset(ptr);
@@ -2764,6 +2921,12 @@ namespace ZJSON {
 		const Json* ptr;
 		mutable JsonConstEntry entry;
 	public:
+		using iterator_category = std::forward_iterator_tag;
+		using value_type = JsonConstEntry;
+		using difference_type = std::ptrdiff_t;
+		using pointer = JsonConstEntry*;
+		using reference = JsonConstEntry&;
+
 		explicit JsonConstIterator(const Json& p) {
 			ptr = p.child;
 			entry.reset(ptr);

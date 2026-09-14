@@ -150,6 +150,16 @@ if (CMAKE_ZJSON_ENABLE_TEST)
     target_link_libraries(test_json_checker gtest gtest_main)
     add_test(NAME test_json_checker COMMAND test_json_checker)
 
+    # Full-surface coverage suites: every public API entry point and every
+    # documented edge case of the parser / serializer.
+    add_executable(test_api_coverage tests/test_api_coverage.cpp)
+    target_link_libraries(test_api_coverage gtest gtest_main)
+    add_test(NAME test_api_coverage COMMAND test_api_coverage)
+
+    add_executable(test_parse_coverage tests/test_parse_coverage.cpp)
+    target_link_libraries(test_parse_coverage gtest gtest_main)
+    add_test(NAME test_parse_coverage COMMAND test_parse_coverage)
+
 endif()
 
 ##--------------------- Benchmark -------------------------------------------##
