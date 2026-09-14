@@ -1338,12 +1338,102 @@ TEST(TestApiCoverage, iterator_range_and_structured_bindings) {
 		++count;
 	EXPECT_EQ(count, 3);
 
-	// The entry references the live node: writing through it is visible.
-	for (auto& [key, value] : doc) {
-		if (key == "alpha")
-			value = Json(100);
-	}
+	// The entry references the live node: writing through it is visible, and it keeps
+	// every member on the chain (see assignment_through_iterators_keeps_every_member,
+	// where the same operation used to drop all members after the first).
+	for (auto& [key, value] : doc)
+		value = Json(100);
+	EXPECT_EQ(doc.toString(), "{\"alpha\":100,\"beta\":100,\"gamma\":100}");
 	EXPECT_EQ(doc["alpha"].toInt(), 100);
+	EXPECT_EQ(doc["gamma"].toInt(), 100);
+}
+
+TEST(TestApiCoverage, assignment_through_iterators_keeps_every_member) {
+	// Regression: a member node is a link in its owner's sibling chain. Both
+	// assignment operators used to clear (copy) or adopt (move) `brother`, which
+	// detached the node from the chain and silently dropped every following sibling.
+	// The older version of the test above only wrote to the first member, so it could
+	// not observe the loss.
+	{
+		Json doc("{\"alpha\":1,\"beta\":2,\"gamma\":3}");
+		for (auto& [key, value] : doc)
+			value = Json(5);                       // copy assignment
+		EXPECT_EQ(doc.toString(), "{\"alpha\":5,\"beta\":5,\"gamma\":5}");
+		EXPECT_EQ(doc["beta"].toInt(), 5);
+		EXPECT_EQ(doc["gamma"].toInt(), 5);
+	}
+	{
+		Json doc("{\"alpha\":1,\"beta\":2,\"gamma\":3}");
+		for (auto& [key, value] : doc)
+			value = Json(7);                       // move assignment
+		EXPECT_EQ(doc.toString(), "{\"alpha\":7,\"beta\":7,\"gamma\":7}");
+	}
+	{
+		// A middle member: the members after it must survive.
+		Json doc("{\"alpha\":1,\"beta\":2,\"gamma\":3}");
+		for (auto& [key, value] : doc)
+			if (key == "beta")
+				value = Json(42);
+		EXPECT_EQ(doc.toString(), "{\"alpha\":1,\"beta\":42,\"gamma\":3}");
+	}
+	{
+		// Array elements are links in the same kind of chain.
+		Json arr("[1,2,3]");
+		for (auto& [key, value] : arr)
+			value = Json(0);
+		EXPECT_EQ(arr.toString(), "[0,0,0]");
+	}
+	{
+		// Replacing a member with a container keeps the member's position as well.
+		Json doc("{\"a\":1,\"b\":2,\"c\":3}");
+		for (auto& [key, value] : doc)
+			if (key == "a")
+				value = Json{ {"x", 1} };
+		EXPECT_EQ(doc.toString(), "{\"a\":{\"x\":1},\"b\":2,\"c\":3}");
+	}
+	{
+		// Repeated assignment must not let the chain drift or grow.
+		Json doc("{\"a\":1,\"b\":2}");
+		for (int round = 0; round < 3; ++round)
+			for (auto& [key, value] : doc)
+				value = Json(round);
+		EXPECT_EQ(doc.toString(), "{\"a\":2,\"b\":2}");
+	}
+	{
+		// Assigning a whole document to another standalone node still works.
+		Json target("{\"x\":1}");
+		Json source("{\"y\":2,\"z\":3}");
+		target = source;
+		EXPECT_EQ(target.toString(), "{\"y\":2,\"z\":3}");
+	}
+}
+
+TEST(TestApiCoverage, three_argument_remove_uses_the_owner_supplied_by_the_caller) {
+	// Regression: the historical recursion shape remove(key, self, prev) passes the
+	// owning container as `prev` and its first child as `self`. Deriving the owner from
+	// `this` instead unlinked from the wrong chain, spliced unrelated nodes into the
+	// document and crashed.
+	Json doc("{\"p\":{\"k\":1,\"x\":2,\"y\":3},\"tail\":9}");
+	Json& nested = (*doc.begin()).value();
+	Json& nestedFirstChild = (*nested.begin()).value();
+
+	doc.remove("k", &nestedFirstChild, &nested);
+	EXPECT_EQ(nested.toString(), "{\"x\":2,\"y\":3}");
+	EXPECT_EQ(doc.toString(), "{\"p\":{\"x\":2,\"y\":3},\"tail\":9}");
+
+	// The document stays consistent afterwards: the sibling chain, the tail pointer
+	// and the lazy key index are all usable again.
+	EXPECT_EQ(doc["p"].toString(), "{\"x\":2,\"y\":3}");
+	EXPECT_EQ(doc["tail"].toInt(), 9);
+	doc.add("added", 10);
+	EXPECT_EQ(doc.toString(), "{\"p\":{\"x\":2,\"y\":3},\"tail\":9,\"added\":10}");
+	doc.remove("added");
+	EXPECT_EQ(doc.toString(), "{\"p\":{\"x\":2,\"y\":3},\"tail\":9}");
+
+	// The one-argument form is unchanged and still removes at every depth.
+	Json deep("{\"outer\":{\"k\":1},\"k\":2}");
+	deep.remove("k");
+	EXPECT_EQ(deep.toString(), "{\"outer\":{}}");
 }
 
 TEST(TestApiCoverage, const_iterator_and_cbegin_cend) {

@@ -1193,16 +1193,20 @@ namespace ZJSON {
 		Json& operator = (const Json& origin) {
 			if (this == &origin)
 				return(*this);
-			// A member node owns its key: assigning a nameless value into a named
-			// member keeps the key (the same rule overwritePreservingLinks() applies).
-			// Without this, `for (auto& [k, v] : obj) v = Json(1);` would silently
-			// turn every member into the empty key.
+			// A member node is a link in its owner's sibling chain, and it owns its key:
+			// the assignment replaces the value in place, so the chain position and the
+			// key must both survive. Clearing `brother` here (or taking the source's)
+			// detached the node, silently dropping every following sibling of the owner -
+			// which is why `for (auto& [k, v] : obj) v = Json(1);` used to keep only the
+			// first member. The same rule is what overwritePreservingLinks() implements
+			// for the patch paths.
+			Json* savedBrother = this->brother;
 			const bool keepName = !this->name.empty() && origin.name.empty();
 			detail::StoredString savedName;
 			if (keepName)
 				savedName = this->name;
 			releaseChildren();
-			this->brother = nullptr;
+			this->brother = savedBrother;
 			this->type = origin.type;
 			this->name = keepName ? savedName : origin.name;
 			this->valueString = origin.valueString;
@@ -1216,13 +1220,16 @@ namespace ZJSON {
 		Json& operator = (Json&& rhs) noexcept {
 			if (this == &rhs)
 				return(*this);
+			// See the copy assignment above: the chain position is part of this node's
+			// identity, so it is restored rather than taken from `rhs`.
+			Json* savedBrother = this->brother;
 			const bool keepName = !this->name.empty() && rhs.name.empty();
 			if (keepName) {
 				detail::StoredString savedName = std::move(this->name);
 				releaseChildren();
 				this->type = rhs.type;
 				this->child = rhs.child;
-				this->brother = rhs.brother;
+				this->brother = savedBrother;
 				this->lastChild = rhs.lastChild;
 				this->keymap = rhs.keymap;
 				this->name = std::move(savedName);
@@ -1237,7 +1244,7 @@ namespace ZJSON {
 			releaseChildren();
 			this->type = rhs.type;
 			this->child = rhs.child;
-			this->brother = rhs.brother;
+			this->brother = savedBrother;
 			this->lastChild = rhs.lastChild;
 			this->keymap = rhs.keymap;
 			this->name = std::move(rhs.name);
@@ -2071,9 +2078,16 @@ namespace ZJSON {
 				return (*this);
 
 			Json* start = (self == nullptr) ? this->child : self;
-			Json* startPrev = (self == nullptr) ? nullptr : prev;
 			if (!start)
 				return (*this);
+
+			// The three-argument form is the historical recursion shape: the caller passes
+			// the owning container as `prev` together with its first child as `self` (the
+			// old parser called remove(key, cur->child, cur)).  The owner therefore has to
+			// be derived from `prev`; assuming `this` would unlink from the wrong chain,
+			// splice unrelated nodes together and corrupt the document.  When `prev` is
+			// null the call is the ordinary public one and `this` owns the chain.
+			Json* container = prev ? prev : this;
 
 			struct Frame {
 				Json* container;   // owner of the chain currently being scanned
@@ -2082,7 +2096,7 @@ namespace ZJSON {
 			};
 
 			std::vector<Frame> stk;
-			stk.push_back({ this, startPrev, start });
+			stk.push_back({ container, nullptr, start });
 
 			while (!stk.empty()) {
 				Frame& frame = stk.back();
