@@ -80,6 +80,41 @@ namespace ZJSON {
 	// IEEE-754 double precision).
 	// ----------------------------------------------------------------------
 	namespace detail {
+		// ----------------------------------------------------------------------
+		// Numeric state of a Number node (R5-1 three-state Number).
+		//
+		// The model used to be "double only", which silently rounded every integer
+		// literal beyond 2^53: `{"id":9007199254740993}` came back as `...992`.  A
+		// Number node now carries a one-byte kind next to `type` - inside what used
+		// to be alignment padding, so the node does not grow - and the union below
+		// reuses exactly the 8 bytes that held the double.
+		//
+		// Selection rule (see JsonParser::parse_number and the arithmetic
+		// constructors): an integer literal that fits int64 is Int64, one that only
+		// fits uint64 is Uint64, and everything else - fractional or exponential
+		// forms, and literals too wide for both - stays Double, which is exactly the
+		// historical behaviour.
+		// ----------------------------------------------------------------------
+		enum class NumberKind : unsigned char {
+			Double = 0,
+			Int64 = 1,
+			Uint64 = 2
+		};
+
+		// Payload of a Number node: 8 bytes whatever the kind.  Trivially copyable
+		// and default-initialised to zero, so a node that never becomes a Number is
+		// still fully initialised.
+		union NumberData {
+			double asDouble;
+			int64_t asInt64;
+			uint64_t asUint64;
+
+			NumberData() : asUint64(0) {}
+			NumberData(double value) : asDouble(value) {}
+			NumberData(int64_t value) : asInt64(value) {}
+			NumberData(uint64_t value) : asUint64(value) {}
+		};
+
 		// Text that a parsed document refers to.  `source` owns the raw input (whether
 		// copied or moved in) and `materialized` holds the strings that had to be
 		// decoded (escapes) - those live in chunked bump storage, so materialising N
@@ -579,6 +614,35 @@ namespace ZJSON {
 		}
 	}
 
+	// Integral overloads (R5-1).  An integer that was stored as int64/uint64 is
+	// written straight from the exact value, which is what keeps
+	// `9007199254740993` from being rounded through a double on the way out.
+	//
+	// They are declared before the double overload on purpose: the double version
+	// delegates its "exact integer" fast path to the int64 one, and a call to an
+	// overload that is not declared yet would resolve right back to itself.
+	inline void appendNumber(int64_t v, string& out) {
+		char buf[24];
+		auto res = std::to_chars(buf, buf + sizeof(buf), v);
+		if (res.ec == std::errc{}) {
+			out.append(buf, static_cast<size_t>(res.ptr - buf));
+			return;
+		}
+		int n = std::snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(v));
+		if (n > 0) out.append(buf, static_cast<size_t>(n));
+	}
+
+	inline void appendNumber(uint64_t v, string& out) {
+		char buf[24];
+		auto res = std::to_chars(buf, buf + sizeof(buf), v);
+		if (res.ec == std::errc{}) {
+			out.append(buf, static_cast<size_t>(res.ptr - buf));
+			return;
+		}
+		int n = std::snprintf(buf, sizeof(buf), "%llu", static_cast<unsigned long long>(v));
+		if (n > 0) out.append(buf, static_cast<size_t>(n));
+	}
+
 	// Append a JSON-formatted number. NaN/Inf are written as "null" because
 	// RFC 8259 forbids them; callers that wish to reject earlier may do so.
 	inline void appendNumber(double v, string& out) {
@@ -591,18 +655,13 @@ namespace ZJSON {
 		if (v == std::floor(v) && v >= -1e16 && v <= 1e16) {
 			long long i = static_cast<long long>(v);
 			if (static_cast<double>(i) == v) {
-				char buf[32];
+				// Negative zero has no integer spelling of its own, so it keeps a
+				// sign the integer state cannot carry (-0.0 → "-0").
 				if (i == 0 && std::signbit(v)) {
 					out.append("-0");
-				} else {
-					auto res = std::to_chars(buf, buf + sizeof(buf), i);
-					if (res.ec == std::errc{}) {
-						out.append(buf, static_cast<size_t>(res.ptr - buf));
-					} else {
-						int n = std::snprintf(buf, sizeof(buf), "%lld", i);
-						if (n > 0) out.append(buf, static_cast<size_t>(n));
-					}
+					return;
 				}
+				appendNumber(static_cast<int64_t>(i), out);
 				return;
 			}
 		}
@@ -717,6 +776,8 @@ namespace ZJSON {
 		void push_back(char ch) { out.push_back(ch); }
 		void append(const char* data, size_t length) { out.append(data, length); }
 		void appendNumber(double value) { ZJSON::appendNumber(value, out); }
+		void appendNumber(int64_t value) { ZJSON::appendNumber(value, out); }
+		void appendNumber(uint64_t value) { ZJSON::appendNumber(value, out); }
 		void appendEscaped(string_view text) { appendEscapedString(text, out); }
 		void appendIndent(int indentSize, int depth) {
 			if (indentSize > 0)
@@ -729,13 +790,11 @@ namespace ZJSON {
 		explicit StreamSink(std::ostream& target) : out(target) {}
 		void push_back(char ch) { out.put(ch); }
 		void append(const char* data, size_t length) { out.write(data, static_cast<std::streamsize>(length)); }
-		void appendNumber(double value) {
-			// One reused buffer: numbers are short and this keeps the writer allocation
-			// free after the first call.
-			scratch.clear();
-			ZJSON::appendNumber(value, scratch);
-			out.write(scratch.data(), static_cast<std::streamsize>(scratch.size()));
-		}
+		// One reused buffer: numbers are short and this keeps the writer allocation
+		// free after the first call.
+		void appendNumber(double value) { appendNumberToScratch(value); }
+		void appendNumber(int64_t value) { appendNumberToScratch(value); }
+		void appendNumber(uint64_t value) { appendNumberToScratch(value); }
 		void appendEscaped(string_view text) {
 			const char* data = text.data();
 			const size_t length = text.size();
@@ -760,6 +819,13 @@ namespace ZJSON {
 		}
 
 	private:
+		template <typename T>
+		void appendNumberToScratch(T value) {
+			scratch.clear();
+			ZJSON::appendNumber(value, scratch);
+			out.write(scratch.data(), static_cast<std::streamsize>(scratch.size()));
+		}
+
 		string scratch;
 	};
 
@@ -804,9 +870,108 @@ namespace ZJSON {
 		Json* lastChild;   // tail of child list — O(1) append
 		mutable std::unordered_map<string, Json*>* keymap;  // lazy O(1) key lookup (Object only)
 		Type type;
+		// R5-1: which member of `valueNumber` is live.  Declared right after `type`
+		// on purpose - this byte lands in the padding that used to follow it, so the
+		// third numeric state costs no memory (see detail::NumberData).
+		detail::NumberKind numberKind = detail::NumberKind::Double;
 		detail::StoredString valueString;
-		double valueNumber;
+		// Numeric payload.  Never read a union member directly: which one is valid is
+		// decided by `numberKind`, so go through numberAs<T>() or one of the
+		// setNumber* helpers below.
+		detail::NumberData valueNumber;
 		detail::StoredString name;
+
+		void setNumberDouble(double value) noexcept {
+			this->numberKind = detail::NumberKind::Double;
+			this->valueNumber.asDouble = value;
+		}
+		void setNumberInt64(int64_t value) noexcept {
+			this->numberKind = detail::NumberKind::Int64;
+			this->valueNumber.asInt64 = value;
+		}
+		void setNumberUint64(uint64_t value) noexcept {
+			this->numberKind = detail::NumberKind::Uint64;
+			this->valueNumber.asUint64 = value;
+		}
+
+		// The stored value converted to T.  An integer state converts directly
+		// (exactly for a T that can hold it) instead of detouring through double,
+		// which is what kept 2^53 + 1 from being readable exactly.
+		template <typename T>
+		T numberAs() const noexcept {
+			switch (this->numberKind) {
+			case detail::NumberKind::Int64: return static_cast<T>(this->valueNumber.asInt64);
+			case detail::NumberKind::Uint64: return static_cast<T>(this->valueNumber.asUint64);
+			default: return static_cast<T>(this->valueNumber.asDouble);
+			}
+		}
+
+		// Writes one Number node through a sink, picking the live payload member.
+		template <typename Sink>
+		static void writeNumber(const Json* node, Sink& sink) {
+			switch (node->numberKind) {
+			case detail::NumberKind::Int64: sink.appendNumber(node->valueNumber.asInt64); break;
+			case detail::NumberKind::Uint64: sink.appendNumber(node->valueNumber.asUint64); break;
+			default: sink.appendNumber(node->valueNumber.asDouble); break;
+			}
+		}
+
+		static void appendNumberText(const Json* node, string& out) {
+			switch (node->numberKind) {
+			case detail::NumberKind::Int64: appendNumber(node->valueNumber.asInt64, out); break;
+			case detail::NumberKind::Uint64: appendNumber(node->valueNumber.asUint64, out); break;
+			default: appendNumber(node->valueNumber.asDouble, out); break;
+			}
+		}
+
+		// Equality across the three states.  Values that both states can express
+		// compare numerically (so Json(1) == Json(1.0) still holds), but a double is
+		// only equal to an integer when it is an exact integer in that integer's
+		// range - 9007199254740993 must not equal the double it would round to.
+		static bool numberEquals(const Json& lhs, const Json& rhs) noexcept {
+			const detail::NumberKind lk = lhs.numberKind;
+			const detail::NumberKind rk = rhs.numberKind;
+			if (lk == rk) {
+				switch (lk) {
+				case detail::NumberKind::Int64: return lhs.valueNumber.asInt64 == rhs.valueNumber.asInt64;
+				case detail::NumberKind::Uint64: return lhs.valueNumber.asUint64 == rhs.valueNumber.asUint64;
+				default: return lhs.valueNumber.asDouble == rhs.valueNumber.asDouble;
+				}
+			}
+			if (lk == detail::NumberKind::Int64)
+				return numberEqualsIntDouble(lhs.valueNumber.asInt64, rhs);
+			if (lk == detail::NumberKind::Uint64)
+				return numberEqualsUintDouble(lhs.valueNumber.asUint64, rhs);
+			if (rk == detail::NumberKind::Int64)
+				return numberEqualsIntDouble(rhs.valueNumber.asInt64, lhs);
+			return numberEqualsUintDouble(rhs.valueNumber.asUint64, lhs);
+		}
+
+		static bool numberEqualsIntDouble(int64_t value, const Json& other) noexcept {
+			if (other.numberKind == detail::NumberKind::Uint64)
+				return value >= 0 && static_cast<uint64_t>(value) == other.valueNumber.asUint64;
+			const double d = other.valueNumber.asDouble;
+			// -2^63 is exactly representable, so this range test has no unsafe edge.
+			if (!(d >= -9223372036854775808.0 && d < 9223372036854775808.0))
+				return false;                       // also rejects NaN and infinities
+			if (d != std::floor(d))
+				return false;
+			return static_cast<int64_t>(d) == value;
+		}
+
+		static bool numberEqualsUintDouble(uint64_t value, const Json& other) noexcept {
+			if (other.numberKind == detail::NumberKind::Int64)
+				return other.valueNumber.asInt64 >= 0 &&
+					static_cast<uint64_t>(other.valueNumber.asInt64) == value;
+			const double d = other.valueNumber.asDouble;
+			// 2^64 is the first double above the uint64 range; everything below it,
+			// and the value 0 itself, is safe to cast.
+			if (!(d >= 0.0 && d < 18446744073709551616.0))
+				return false;
+			if (d != std::floor(d))
+				return false;
+			return static_cast<uint64_t>(d) == value;
+		}
 
 		static inline void appendIndent(string& out, int indentSize, int depth) {
 			out.append(static_cast<size_t>(indentSize * depth), ' ');
@@ -829,7 +994,7 @@ namespace ZJSON {
 				return node->valueString.view() == text;
 			case Type::Number: {
 				string tmp;
-				appendNumber(node->valueNumber, tmp);
+				appendNumberText(node, tmp);
 				return string_view(tmp.data(), tmp.size()) == text;
 			}
 			case Type::True:
@@ -1024,33 +1189,6 @@ namespace ZJSON {
 				this->name = std::move(savedName);
 		}
 
-		void appendRawValue(const Json* json, string& result) const {
-			switch (json->type) {
-			case Type::String:
-				result.push_back('"');
-				appendEscapedString(json->valueString, result);
-				result.push_back('"');
-				break;
-			case Type::Number:
-				appendNumber(json->valueNumber, result);
-				break;
-			case Type::True:
-				result.append("true", 4);
-				break;
-			case Type::False:
-				result.append("false", 5);
-				break;
-			case Type::Null:
-				result.append("null", 4);
-				break;
-			case Type::Error:
-			case Type::Object:
-			case Type::Array:
-			default:
-				break;
-			}
-		}
-
 		// Writes one leaf value through a sink (string- or stream-backed).
 		template <typename Sink>
 		static void writeRawValue(const Json* node, Sink& sink) {
@@ -1061,7 +1199,7 @@ namespace ZJSON {
 				sink.push_back('"');
 				break;
 			case Type::Number:
-				sink.appendNumber(node->valueNumber);
+				writeNumber(node, sink);
 				break;
 			case Type::True:
 				sink.append("true", 4);
@@ -1331,7 +1469,7 @@ namespace ZJSON {
 
 				switch (lhs->type) {
 				case Type::Number:
-					if (lhs->valueNumber != rhs->valueNumber)
+					if (!numberEquals(*lhs, *rhs))
 						return false;
 					break;
 				case Type::String:
@@ -1503,7 +1641,6 @@ namespace ZJSON {
 			this->lastChild = nullptr;
 			this->keymap = nullptr;
 			this->type = type;
-			this->valueNumber = 0;
 		}
 
 		// Copies the scalar state of a node; the caller wires up the links.
@@ -1511,6 +1648,7 @@ namespace ZJSON {
 			Json* node = new Json(source->type);
 			node->name = source->name;
 			node->valueString = source->valueString;
+			node->numberKind = source->numberKind;
 			node->valueNumber = source->valueNumber;
 			return node;
 		}
@@ -1612,15 +1750,21 @@ namespace ZJSON {
 			this->lastChild = nullptr;
 			this->keymap = nullptr;
 			this->type = (Type)type;
-			this->valueNumber = 0;
 		}
 
+		// Integral sources keep their exact value (R5-1): a `long long` no longer
+		// detours through a double, which is what used to round 2^53 + 1 on the way
+		// in.  Signedness picks the state, so an `unsigned long long` above
+		// INT64_MAX is still representable.
 		template<typename T, typename std::enable_if<std::is_arithmetic<typename std::decay<T>::type>::value && !std::is_same<typename std::decay<T>::type, bool>::value && !std::is_same<typename std::decay<T>::type, float>::value && !std::is_same<typename std::decay<T>::type, double>::value, int>::type = 0> Json(const T& value) {
 			this->brother = nullptr;
 			this->child = nullptr;
 			this->lastChild = nullptr;
 			this->keymap = nullptr;
-			this->valueNumber = value;
+			if constexpr (std::is_signed<T>::value)
+				this->setNumberInt64(static_cast<int64_t>(value));
+			else
+				this->setNumberUint64(static_cast<uint64_t>(value));
 			this->type = Type::Number;
 		}
 
@@ -1639,7 +1783,7 @@ namespace ZJSON {
 			else {
 				this->brother = nullptr;
 				this->child = nullptr;
-				this->valueNumber = value;
+				this->setNumberDouble(value);
 				this->type = Type::Number;
 			}
 		}
@@ -1655,7 +1799,7 @@ namespace ZJSON {
 			else {
 				this->brother = nullptr;
 				this->child = nullptr;
-				this->valueNumber = value;
+				this->setNumberDouble(value);
 				this->type = Type::Number;
 			}
 		}
@@ -1707,6 +1851,7 @@ namespace ZJSON {
 			this->type = origin.type;
 			this->name = origin.name;
 			this->valueString = origin.valueString;
+			this->numberKind = origin.numberKind;
 			this->valueNumber = origin.valueNumber;
 			Json* childTail = nullptr;
 			this->child = cloneChain(origin.child, &childTail);
@@ -1723,6 +1868,7 @@ namespace ZJSON {
 			this->keymap = rhs.keymap;
 			this->name = std::move(rhs.name);
 			this->valueString = std::move(rhs.valueString);
+			this->numberKind = rhs.numberKind;
 			this->valueNumber = rhs.valueNumber;
 			rhs.child = nullptr;
 			rhs.brother = nullptr;
@@ -1857,6 +2003,7 @@ namespace ZJSON {
 			this->type = origin.type;
 			this->name = keepName ? savedName : origin.name;
 			this->valueString = origin.valueString;
+			this->numberKind = origin.numberKind;
 			this->valueNumber = origin.valueNumber;
 			Json* childTail = nullptr;
 			this->child = cloneChain(origin.child, &childTail);
@@ -1881,6 +2028,7 @@ namespace ZJSON {
 				this->keymap = rhs.keymap;
 				this->name = std::move(savedName);
 				this->valueString = std::move(rhs.valueString);
+				this->numberKind = rhs.numberKind;
 				this->valueNumber = rhs.valueNumber;
 				rhs.child = nullptr;
 				rhs.brother = nullptr;
@@ -1896,6 +2044,7 @@ namespace ZJSON {
 			this->keymap = rhs.keymap;
 			this->name = std::move(rhs.name);
 			this->valueString = std::move(rhs.valueString);
+			this->numberKind = rhs.numberKind;
 			this->valueNumber = rhs.valueNumber;
 			rhs.child = nullptr;
 			rhs.brother = nullptr;
@@ -2312,7 +2461,9 @@ namespace ZJSON {
 			} else if constexpr (std::is_arithmetic<T>::value) {
 				if (!found->isNumber())
 					return false;
-				out = static_cast<T>(found->valueNumber);
+				// Converts from the stored state, so an int64 target keeps every bit of
+				// a value that a double detour would have rounded.
+				out = found->numberAs<T>();
 				return true;
 			} else if constexpr (detail::has_adl_from_json<T>::value) {
 				T value{};
@@ -2697,12 +2848,37 @@ namespace ZJSON {
 		const_iterator cend() const;
 
 		int toInt() const {
-			return (int)this->toDouble();
+			if (this->type == Type::Number)
+				return this->numberAs<int>();
+			return static_cast<int>(this->toDouble());
+		}
+
+		// Exact 64-bit reads (R5-1).  For an integer node this is the stored value
+		// itself, so `9007199254740993` comes back intact; for a double or a string
+		// it follows the same rule as a C++ cast, mirroring toInt()/toDouble().
+		int64_t toInt64() const {
+			if (this->type == Type::Number)
+				return this->numberAs<int64_t>();
+			return static_cast<int64_t>(this->toDouble());
+		}
+
+		uint64_t toUint64() const {
+			if (this->type == Type::Number)
+				return this->numberAs<uint64_t>();
+			return static_cast<uint64_t>(this->toDouble());
+		}
+
+		// True when the node holds a Number that was stored as an integer, i.e. a
+		// JSON integer literal (or an integral C++ scalar) that fits int64/uint64.
+		// `42.0` and `42e0` are numbers but not integral; toInt64() still converts
+		// them.
+		bool isIntegral() const noexcept {
+			return this->type == Type::Number && this->numberKind != detail::NumberKind::Double;
 		}
 
 		double toDouble() const {
 			if (this->type == Type::Number)
-				return valueNumber;
+				return this->numberAs<double>();
 			else if (this->isTrue())
 				return 1;
 			else if (this->isFalse())
@@ -3041,7 +3217,9 @@ namespace ZJSON {
 				this->add(childName, nullptr);
 				break;
 			case Type::Number:
-				this->add(childName, cur->valueNumber);
+				// Re-add the node itself so the numeric state (and therefore the exact
+				// value) travels with it instead of being re-read from the double slot.
+				this->add(childName, *cur);
 				break;
 			case Type::String:
 				this->add(childName, cur->valueString.str());
@@ -3323,12 +3501,49 @@ namespace ZJSON {
 				}
 			}
 
+			// Stores an integer literal exactly.  Returns false when the text does not
+			// fit int64 (signed) or uint64 (non-negative) either, which leaves the
+			// caller to fall back to the double model.  std::from_chars is used rather
+			// than atoi/strtoll so the result cannot depend on LC_NUMERIC.
+			static bool storeIntegerLiteral(Json& rs, string_view token, bool negative) {
+				if (negative) {
+					int64_t value = 0;
+					auto res = std::from_chars(token.data(), token.data() + token.size(), value);
+					if (res.ec == std::errc{} && res.ptr == token.data() + token.size()) {
+						rs.setNumberInt64(value);
+						return true;
+					}
+					return false;
+				}
+
+				// Non-negative literals prefer the signed state - that way `1` from the
+				// parser and `1` from an `int` are the same kind of node - and only a
+				// value above INT64_MAX moves to the unsigned one.
+				int64_t signedValue = 0;
+				auto signedRes = std::from_chars(token.data(), token.data() + token.size(), signedValue);
+				if (signedRes.ec == std::errc{} && signedRes.ptr == token.data() + token.size()) {
+					rs.setNumberInt64(signedValue);
+					return true;
+				}
+
+				uint64_t unsignedValue = 0;
+				auto unsignedRes = std::from_chars(token.data(), token.data() + token.size(), unsignedValue);
+				if (unsignedRes.ec == std::errc{} && unsignedRes.ptr == token.data() + token.size()) {
+					rs.setNumberUint64(unsignedValue);
+					return true;
+				}
+				return false;
+			}
+
 			Json parse_number() {
 				Json rs(Type::Number);
 				size_t start_pos = i;
+				bool negative = false;
 
-				if (i < str.size() && str[i] == '-')
+				if (i < str.size() && str[i] == '-') {
+					negative = true;
 					i++;
+				}
 
 				if (i == str.size())
 					return fail("unexpected end of input in number");
@@ -3347,14 +3562,26 @@ namespace ZJSON {
 					return fail("invalid " + esc(str[i]) + " in number");
 				}
 
-				if (i == str.size()) {
-					rs.valueNumber = detail::parseDouble(string_view(str.data() + start_pos, i - start_pos));
-					return rs;
-				}
-
-				if (str[i] != '.' && str[i] != 'e' && str[i] != 'E'
-					&& (i - start_pos) <= static_cast<size_t>(std::numeric_limits<int>::digits10)) {
-					rs.valueNumber = (double)std::atoi(str.c_str() + start_pos);
+				// R5-1: an integer literal - digits only, no fraction and no exponent -
+				// is stored exactly, in whichever of the two integer states can hold it.
+				// This is the whole point of the three-state model: `9007199254740993`
+				// used to be rounded to a double here and printed back as `...992`.
+				const bool literalEnds = (i == str.size()) || (str[i] != '.' && str[i] != 'e' && str[i] != 'E');
+				if (literalEnds) {
+					const string_view token(str.data() + start_pos, i - start_pos);
+					if (negative && token.size() == 2 && token[1] == '0') {
+						// "-0": the only integer spelling whose sign an integer state
+						// cannot carry, so it stays a double and keeps printing as -0.
+						// (The grammar rejects "-00", so length 2 plus that digit is
+						// exactly the negative zero.)
+						rs.setNumberDouble(detail::parseDouble(token));
+						return rs;
+					}
+					if (storeIntegerLiteral(rs, token, negative))
+						return rs;
+					// Too wide for int64 and uint64: accepted, and degraded to double
+					// exactly as before.
+					rs.setNumberDouble(detail::parseDouble(token));
 					return rs;
 				}
 
@@ -3380,7 +3607,7 @@ namespace ZJSON {
 						i++;
 				}
 
-				rs.valueNumber = detail::parseDouble(string_view(str.data() + start_pos, i - start_pos));
+				rs.setNumberDouble(detail::parseDouble(string_view(str.data() + start_pos, i - start_pos)));
 				return rs;
 			}
 

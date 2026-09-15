@@ -72,7 +72,7 @@ enum Type {
     False,                //Json value type - false
     True,                 //Json value type - true
     Null,                 //Json value type - null
-    Number,               //Json value type - numerial
+    Number,               //Json value type - number (double / int64 / uint64)
     String,               //Json value type - string
     Object,               //Json object type
     Array                 //Json object type
@@ -84,7 +84,9 @@ class Json {
     Json* brother;       //like cJSON's next
     Json* child;         //chile node, for object type
     Type type;           //node type
-    std::variant <int, bool, double, string> data;   //node's data
+    NumberKind numberKind;  //which member of the numeric payload below is live
+    union { double; int64_t; uint64_t; } number;   //node's numeric data
+    string valueString;  //node's string data
     string name;         //node's key
 }
 ```
@@ -116,11 +118,14 @@ Api list
 - bool isObject()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;
 - bool isArray()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
 - bool isNumber()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;
+- bool isIntegral()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//true when the number is stored as int64/uint64 (a JSON integer literal)
 - bool isTrue()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;
 - bool isFalse()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
 - int toInt()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;
 - float toFloat()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;
 - double toDouble()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;
+- int64_t toInt64()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//exact for integer nodes (no double round trip)
+- uint64_t toUint64()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//exact for integer nodes (no double round trip)
 - bool toBool()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;
 - vector&lt;Json&gt; toVector()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;
 - bool extend(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
@@ -243,9 +248,9 @@ The following table documents zjson's behavior on inputs where the JSON specific
 | Behavior | zjson | Notes |
 |---|---|---|
 | **Duplicate object keys** | Configurable; default keep-last | `ParseOptions::DuplicateKeyPolicy` supports `KeepFirst`, `KeepLast`, and `Reject` |
-| **Number precision** | IEEE 754 `double` | Parsed via `strtod`; integers that fit in `int` use `atoi` fast path |
-| **Very large numbers** | `±Infinity` | `strtod` result; no error |
-| **Very small numbers** | `0.0` or denormal | `strtod` result; no error |
+| **Number precision** | IEEE 754 `double`, plus exact `int64` / `uint64` | An integer literal with no fraction or exponent is stored exactly as `int64`, or as `uint64` when it only fits the unsigned range (`18446744073709551615` round-trips); everything else is a `double`. Anything wider than both falls back to `double` exactly as before |
+| **Very large numbers** | `±Infinity` | `from_chars`/`strtod` result; no error |
+| **Very small numbers** | `0.0` or denormal | `from_chars`/`strtod` result; no error |
 | **Maximum nesting depth** | 100 levels | Configurable via `max_depth`; deeper input is rejected |
 | **UTF-8 BOM (U+FEFF)** | Not consumed | BOM bytes cause a parse error (not treated as whitespace) |
 | **Comments (`//` and `/* */`)** | Accepted in extension mode | `ParseJson()` allows comments; `ParseJsonStrict()` rejects them |

@@ -296,12 +296,17 @@ TEST(TestParseCoverage, valid_number_forms) {
 	EXPECT_EQ(parseStrict("-0").toString(), "-0");
 	EXPECT_EQ(parseStrict("-0.0").toString(), "-0");
 
-	// Integer magnitudes beyond 2^53 are accepted but stored as double: the
-	// documented precision limit of the current numeric model.
+	// R5-1 three-state Number: an integer literal without a fraction or an
+	// exponent is stored as int64/uint64 and survives the round trip exactly.
 	EXPECT_TRUE(acceptsStrict("9007199254740993"));
 	EXPECT_TRUE(acceptsStrict("9223372036854775807"));
 	EXPECT_TRUE(acceptsStrict("-9223372036854775808"));
-	EXPECT_EQ(parseStrict("9007199254740993").toString(), "9007199254740992");
+	EXPECT_EQ(parseStrict("9007199254740993").toString(), "9007199254740993");
+
+	// Only what does not fit either 64-bit state falls back to the double model,
+	// where the historical rounding still applies.
+	EXPECT_EQ(parseStrict("18446744073709551616").toString(), "18446744073709551616");
+	EXPECT_FALSE(parseStrict("18446744073709551616").isIntegral());
 }
 
 TEST(TestParseCoverage, invalid_number_forms) {

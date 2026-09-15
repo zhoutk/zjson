@@ -212,6 +212,14 @@ if (CMAKE_ZJSON_ENABLE_TEST)
     target_link_libraries(test_advanced gtest gtest_main Threads::Threads)
     add_test(NAME test_advanced COMMAND test_advanced)
 
+    # R5-1: three-state Number.  Locks down exact int64/uint64 round trips, the
+    # state-selection rules, cross-state equality and the "node size unchanged"
+    # layout contract.
+    add_executable(test_number tests/test_number.cpp)
+    zjson_set_output_dir(test_number)
+    target_link_libraries(test_number gtest gtest_main)
+    add_test(NAME test_number COMMAND test_number)
+
     # The node pool is intentionally process-lifetime, so LeakSanitizer must be told
     # to ignore it. src/zjson.hpp does that at runtime (__lsan_ignore_object) and
     # tests/lsan.supp is the fallback for toolchains where that path is not compiled.

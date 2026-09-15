@@ -76,7 +76,7 @@ enum Type {
     False,                //Json值类型 - false
     True,                 //Json值类型 - true
     Null,                 //Json值类型 - null
-    Number,               //Json值类型 - 数字，库中以double类型存储
+    Number,               //Json值类型 - 数字，库中以三态存储：double / int64 / uint64
     String,               //Json值类型 - 字符串
     Object,               //Json类对象类型 - 这是Object嵌套，对象型中只有child需要关注
     Array                 //Json类对象类型 - 这是Array嵌套，对象型中只有child需要关注
@@ -88,7 +88,9 @@ class Json {
     Json* brother;       //与cJSON中的next对应，值类型才有效，指向并列的数据，但有可能是值类型，也有可能是对象类型
     Json* child;         //孩子节点，对象类型才有效
     Type type;           //节点类型
-    std::variant <int, bool, double, string> data;   //节点数据
+    NumberKind numberKind;  //数字载荷当前生效的是哪一个成员（double / int64 / uint64）
+    union { double; int64_t; uint64_t; } number;   //节点数字数据
+    string valueString;  //节点字符串数据
     string name;         //节点的key
 }
 ```
@@ -119,12 +121,15 @@ enum class JsonType
 - bool isNull()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//null值判定
 - bool isObject()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//Object对象判定
 - bool isArray()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//Array对象判定
-- bool isNumber()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//number值判定，Json内使用double型别存储number值
+- bool isNumber()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//number值判定，Json内使用三态存储number值
+- bool isIntegral()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//该number是否以int64/uint64存储（即无小数点的整数字面量）
 - bool isTrue()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//true值判定
 - bool isFalse()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//false值判定
 - int toInt()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//值对象转为int
 - float toFloat()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//值对象转为float
 - double toDouble()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//值对象转为double
+- int64_t toInt64()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//整数节点精确读取，不经double
+- uint64_t toUint64()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//整数节点精确读取，不经double
 - bool toBool()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//值对象转为bool
 - vector&lt;Json&gt; toVector()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//数组对象转为vector
 - bool extend(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//对象扩展
