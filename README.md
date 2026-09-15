@@ -160,8 +160,7 @@ Semantics worth knowing
 - Equality treats members as a **multiset**: duplicate keys must match in multiplicity and value pairing (parsing itself collapses duplicates; the default policy keeps the last one).
 - Structured bindings work through the ADL `get` + `std::tuple_size`/`std::tuple_element`; `std::get<N>(entry)` is intentionally not provided (adding overloads to `namespace std` for our own types would be undefined behaviour).
 - A JSON **integer literal** (no fraction, no exponent) is stored exactly as `int64`/`uint64` and written back verbatim, so `{"id":9007199254740993}` round-trips; `42.0`, `42e0` and `-0` stay `double` (`isIntegral()` tells them apart). The third numeric state costs no memory - the kind tag lives in the padding that already followed `type`.
-- Performance, and the comparison against nlohmann/json, RapidJSON and simdjson (throughput, node-pool cost, access-path cost, stringify hotspots): see [`docs/性能测试报告.md`](docs/性能测试报告.md), raw medians in `docs/benchmark_2026-09-15_clang64_medians.csv`.
-
+- Performance, and the comparison against nlohmann/json, RapidJSON and simdjson (throughput, node-pool cost, access-path cost, stringify hotspots): see [`docs/性能测试报告.md`](docs/性能测试报告.md), raw medians in `docs/benchmark_2026-09-15_clang64_medians.csv`.- The 2026-09-15 wide-object key-index work (flat-object parse **+23%** overall, **1.75x** on a 100 KB flat document) with its A/B evidence, the plan-validation measurements and the rejected candidates: see [`docs/性能优化实施与评估-2026-09-15.md`](docs/性能优化实施与评估-2026-09-15.md).
 ## Thread safety and memory
 
 1. **Node allocation and deallocation are thread safe.** Every thread owns a slab pool that is never released, so a node allocated on one thread may be freed on another (or after the allocating thread has exited). No locking is involved.

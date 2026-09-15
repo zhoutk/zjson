@@ -165,6 +165,7 @@ enum class JsonType
 - 结构化绑定依赖 ADL `get` + `std::tuple_size`/`std::tuple_element`；**刻意不提供** `std::get<N>(entry)`（为自己的类型向 `namespace std` 加重载是 UB）。
 - **整数字面量**（无小数点、无指数）按 `int64`/`uint64` 精确存储并原样写回，`{"id":9007199254740993}` 往返不变；`42.0`、`42e0` 与 `-0` 仍按 `double` 处理（用 `isIntegral()` 区分）。第三个数值状态**不增加节点内存**：kind 标记落在 `type` 之后原有的填充位。
 - 性能，以及与 nlohmann/json、RapidJSON、simdjson 的对比（吞吐、节点池开销、取值路径开销、stringify 热点）：见 [`docs/性能测试报告.md`](docs/性能测试报告.md)，原始中位数数据在 `docs/benchmark_2026-09-15_clang64_medians.csv`。
+- 2026-09-15 宽对象键索引改造（parse 几何平均 **+23%**，100 KB 扁平文档 **1.75×**）的 A/B 证据、方案可行性实测与被否决的候选：见 [`docs/性能优化实施与评估-2026-09-15.md`](docs/性能优化实施与评估-2026-09-15.md)。
 
 ## 线程与内存契约
 

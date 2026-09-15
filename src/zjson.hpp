@@ -248,6 +248,132 @@ namespace ZJSON {
 			operator string() const { return str(); }
 		};
 
+		// Flat open-addressing index from an object member's key to its node.
+		//
+		// This replaces the two std::unordered_map instances the library used to keep:
+		// the parser's per-object duplicate-key index and the lazy per-object "keymap"
+		// behind operator[]/contains/findPtr.  Measured on clang -O2 (2026-09-15):
+		//   * inserting N keys into unordered_map<string_view, Json*> cost 45 ns/key at
+		//     N=300 and 77 ns/key at N=3000 - one heap node per key plus rehashes.  That
+		//     was 42% of the whole parse of a 300-key flat document, and it is why a flat
+		//     document parsed at 102-131 ns/node against 47-52 ns/node for nested ones.
+		//   * unordered_map<string, Json*> additionally copied every key into a string.
+		// A flat table does the same job 2.6-10x faster with a single allocation that
+		// doubles, so the per-key allocation disappears entirely.
+		//
+		// The key text is read back from node->name on every comparison instead of being
+		// stored, so no string_view can dangle when a member is renamed and no key is
+		// ever copied.  That also keeps the semantics of the map it replaces: the last
+		// indexer wins for a duplicate key (plain assignment on the existing slot).
+		//
+		// Invariants: `capacity` is 0 (empty) or a power of two, and count <= capacity/2,
+		// so a linear probe always reaches an empty slot and terminates.
+		template <typename Node>
+		struct JsonKeyIndex {
+			struct Slot {
+				size_t hash;
+				Node* node;
+			};
+
+			std::unique_ptr<Slot[]> slots;
+			size_t capacity = 0;
+			size_t count = 0;
+
+			// FNV-1a over the key, finished with a mix so the low bits used as the slot
+			// index are as well distributed as the high ones.
+			static size_t hashKey(string_view key) noexcept {
+				size_t h = 1469598103934665603ULL;
+				for (char ch : key) {
+					h ^= static_cast<unsigned char>(ch);
+					h *= 1099511628211ULL;
+				}
+				h ^= h >> 33;
+				h *= 0xff51afd7ed558ccdULL;
+				h ^= h >> 33;
+				return h;
+			}
+
+			size_t size() const noexcept { return count; }
+
+			// Returns the slot holding `key`, or nullptr when the table has no such key.
+			Slot* probe(string_view key, size_t hash) const noexcept {
+				if (capacity == 0)
+					return nullptr;
+				const size_t mask = capacity - 1;
+				size_t position = hash & mask;
+				while (slots[position].node) {
+					if (slots[position].hash == hash && slots[position].node->name.view() == key)
+						return &slots[position];
+					position = (position + 1) & mask;
+				}
+				return nullptr;
+			}
+
+			// Places a key known to be absent.  Callers must have probed first, and must
+			// have grown when the load factor would exceed 1/2.
+			void insertNew(size_t hash, Node* node) noexcept {
+				const size_t mask = capacity - 1;
+				size_t position = hash & mask;
+				while (slots[position].node)
+					position = (position + 1) & mask;
+				slots[position].hash = hash;
+				slots[position].node = node;
+				++count;
+			}
+
+			void allocate(size_t wantedCapacity) {
+				std::unique_ptr<Slot[]> fresh(new Slot[wantedCapacity]);
+				for (size_t index = 0; index < wantedCapacity; ++index)
+					fresh[index].node = nullptr;
+				slots = std::move(fresh);
+				capacity = wantedCapacity;
+				count = 0;
+			}
+
+			// Makes room for `wanted` entries and re-places the live ones.  Never call
+			// while a Slot* from probe() is still in use: the array is replaced.
+			void reserve(size_t wanted) {
+				size_t wantedCapacity = 8;
+				while (wantedCapacity < wanted * 2)
+					wantedCapacity <<= 1;
+				if (capacity == wantedCapacity)
+					return;
+				std::unique_ptr<Slot[]> old = std::move(slots);
+				const size_t oldCapacity = capacity;
+				allocate(wantedCapacity);
+				for (size_t index = 0; index < oldCapacity; ++index)
+					if (old[index].node)
+						insertNew(old[index].hash, old[index].node);
+			}
+
+			void grow() {
+				std::unique_ptr<Slot[]> old = std::move(slots);
+				const size_t oldCapacity = capacity;
+				allocate(capacity == 0 ? 8 : capacity * 2);
+				for (size_t index = 0; index < oldCapacity; ++index)
+					if (old[index].node)
+						insertNew(old[index].hash, old[index].node);
+			}
+
+			// Adds `node` under `key`; a key that is already present is replaced, which is
+			// what the unordered_map operator[] this replaces did.
+			void assign(string_view key, Node* node) {
+				const size_t hash = hashKey(key);
+				if (Slot* existing = probe(key, hash)) {
+					existing->node = node;
+					return;
+				}
+				if (capacity == 0 || (count + 1) * 2 > capacity)
+					grow();
+				insertNew(hash, node);
+			}
+
+			Node* find(string_view key) const noexcept {
+				Slot* slot = probe(key, hashKey(key));
+				return slot ? slot->node : nullptr;
+			}
+		};
+
 		// The node pool keeps its slabs for the whole process lifetime on purpose, so
 		// LeakSanitizer is explicitly told about them (no-op wherever LSAN is absent).
 		inline void markPoolMemoryResident(void* block) noexcept {
@@ -944,11 +1070,16 @@ namespace ZJSON {
 		friend class JsonConstIterator;
 		friend class JsonEntry;
 		friend class JsonConstEntry;
+		// The member index reads node->name to compare keys without storing a copy.
+		template <typename Node> friend struct detail::JsonKeyIndex;
 	private:
 		Json* brother;
 		Json* child;
 		Json* lastChild;   // tail of child list — O(1) append
-		mutable std::unordered_map<string, Json*>* keymap;  // lazy O(1) key lookup (Object only)
+		// Lazy O(1) key lookup (Object only).  A flat open-addressing table rather than a
+		// map: it compares against the member's own name, so nothing is copied and no
+		// string_view can dangle.  See detail::JsonKeyIndex.
+		mutable detail::JsonKeyIndex<Json>* keymap;
 		Type type;
 		// R5-1: which member of `valueNumber` is live.  Declared right after `type`
 		// on purpose - this byte lands in the padding that used to follow it, so the
@@ -2157,32 +2288,27 @@ namespace ZJSON {
 
 		// Direct member lookup through the lazy key index; nullptr when absent.
 		//
-		// The index is keyed by std::string and C++17 unordered_map has no heterogeneous
-		// lookup, so a lookup needs a key of exactly that type.  Callers that already hold
-		// one - operator[], contains, try_get, take - go through the reference overload and
-		// pay nothing; the string_view form used by JSON Pointer evaluation and findPtr
-		// builds one temporary, which costs an allocation only when the key is longer than
-		// the small-string buffer (libc++ > 22, libstdc++/MSVC > 15).  The index cannot be
-		// keyed by string_view instead: those views would dangle as soon as a member is
-		// renamed or the arena that backs a parsed key dies.  A C++20 build could add a
-		// transparent hash and drop the temporary entirely.
-		const Json* directMemberPtr(const string& key) const {
+		// The index compares each candidate node's own name against the requested key, so
+		// no key is copied and nothing can dangle - a `string&` and a `string_view` caller
+		// take exactly the same path.  (This used to be an unordered_map<string, Json*>,
+		// which in C++17 has no heterogeneous lookup: a string_view caller had to build a
+		// temporary string, and every indexed key was copied.  Measured 10x slower.)
+		const Json* directMemberPtr(string_view key) const {
 			if (this->type != Type::Object || !this->child)
 				return nullptr;
 			if (!this->keymap)
 				buildKeymap();
-			auto found = this->keymap->find(key);
-			return found == this->keymap->end() ? nullptr : found->second;
+			return this->keymap->find(key);
 		}
 
-		const Json* directMemberPtr(string_view key) const {
-			return this->directMemberPtr(string(key));
+		const Json* directMemberPtr(const string& key) const {
+			return this->directMemberPtr(string_view(key.data(), key.size()));
 		}
 
 		// Resolves a key the way operator[] does: the direct member wins, otherwise the
 		// deep-search fallback runs.  Returns a pointer into the document, or nullptr.
-		// The two overloads keep the temporary key described above away from callers that
-		// already have a std::string.
+		// The two overloads keep the deep-search signature explicit; both take the same
+		// path through the key index, which compares against each node's own name.
 		template <typename Key>
 		const Json* resolveMemberPtrWith(const Key& key) const {
 			if (this->type != Type::Object || !this->child)
@@ -2228,7 +2354,7 @@ namespace ZJSON {
 		bool contains(const string& key) const {
 			if (this->type != Type::Object || !this->child) return false;
 			if (!this->keymap) buildKeymap();
-			return this->keymap->count(key) > 0;
+			return this->keymap->find(key) != nullptr;
 		}
 
 		string getValueType() const {
@@ -3396,7 +3522,7 @@ namespace ZJSON {
 			// whole index, which made add/lookup interleaving quadratic; a single insert
 			// has the same meaning as rebuilding it (later duplicates win) and is O(1).
 			if (self->keymap && self->type == Type::Object)
-				(*self->keymap)[node->name.str()] = node;
+				self->keymap->assign(node->name.view(), node);
 		}
 
 		// Releases a node and its whole subtree. The block each node came from returns to
@@ -3435,16 +3561,18 @@ namespace ZJSON {
 			}
 		}
 
-		// Lazily build a keymap of all immediate children (Object keys only).
+		// Lazily build a key index of all immediate children (Object keys only).
 		// Empty keys are indexed too: {"":1} is a legal document and must be
 		// reachable through operator[]/contains as well as through at("/").
+		// A duplicate key keeps the LAST member, which is what the map's operator[]
+		// did as it walked the chain in order.
 		void buildKeymap() const {
 			if (keymap) { delete keymap; keymap = nullptr; }
-			keymap = new std::unordered_map<string, Json*>();
+			keymap = new detail::JsonKeyIndex<Json>();
 			keymap->reserve(childCount());
 			Json* cur = child;
 			while (cur) {
-				(*keymap)[cur->name.str()] = cur;
+				keymap->assign(cur->name.view(), cur);
 				cur = cur->brother;
 			}
 		}
@@ -3855,9 +3983,17 @@ namespace ZJSON {
 				struct Frame {
 					Json* container;
 					detail::StoredString key;
+					// Up to keyIndexThreshold keys are compared by a linear scan of this inline
+					// array, which needs no allocation at all - the common case for real
+					// documents, whose objects are small.  Measured at 3.1 ns/key, so keeping it
+					// is worth the 384 bytes per frame (2.8 ns per container push_back, ~1% of a
+					// parse); adding a hash prefilter to it made it slower, not faster.
 					std::array<std::pair<string_view, Json*>, keyIndexThreshold> smallKeyIndex;
 					size_t smallKeyCount;
-					std::unordered_map<string_view, Json*> keyIndex;
+					// Objects wider than that switch to this flat hash index.  It replaced a
+					// std::unordered_map<string_view, Json*> which cost 45-77 ns and one heap
+					// node per key and dominated wide-object parsing; see detail::JsonKeyIndex.
+					detail::JsonKeyIndex<Json> wideKeyIndex;
 					bool useHashIndex;
 					PState childDone;   // state to resume after delivering a child value
 				};
@@ -3879,10 +4015,10 @@ namespace ZJSON {
 						string_view keyView = parent.key.view();
 						bool foundExisting = false;
 						size_t smallIndex = 0;
-						auto hashExisting = parent.keyIndex.end();
+						detail::JsonKeyIndex<Json>::Slot* wideSlot = nullptr;
 						if (parent.useHashIndex) {
-							hashExisting = parent.keyIndex.find(keyView);
-							foundExisting = hashExisting != parent.keyIndex.end();
+							wideSlot = parent.wideKeyIndex.probe(keyView, detail::JsonKeyIndex<Json>::hashKey(keyView));
+							foundExisting = wideSlot != nullptr;
 						} else {
 							for (size_t index = 0; index < parent.smallKeyCount; ++index) {
 								if (parent.smallKeyIndex[index].first == keyView) {
@@ -3913,27 +4049,27 @@ namespace ZJSON {
 							}
 						}
 						node->name = std::move(parent.key);
-						string_view storedKey = node->name.view();
 						if (parent.useHashIndex) {
-							if (foundExisting)
-								hashExisting->second = node;
+							// The key text has not changed, so the stored hash still describes it -
+							// only the node moves on to the replacement member.
+							if (wideSlot)
+								wideSlot->node = node;
 							else
-								parent.keyIndex.emplace(storedKey, node);
+								parent.wideKeyIndex.assign(node->name.view(), node);
 						} else if (foundExisting) {
-							parent.smallKeyIndex[smallIndex] = { storedKey, node };
+							parent.smallKeyIndex[smallIndex] = { node->name.view(), node };
+						} else if (parent.smallKeyCount < keyIndexThreshold) {
+							parent.smallKeyIndex[parent.smallKeyCount++] = { node->name.view(), node };
 						} else {
-							if (parent.smallKeyCount < keyIndexThreshold) {
-								parent.smallKeyIndex[parent.smallKeyCount++] = { storedKey, node };
-							} else {
-								parent.useHashIndex = true;
-								parent.keyIndex.reserve((keyIndexThreshold + 1) * 2);
-								for (size_t index = 0; index < parent.smallKeyCount; ++index) {
-									const auto& entry = parent.smallKeyIndex[index];
-									parent.keyIndex.emplace(entry.first, entry.second);
-								}
-								parent.keyIndex.emplace(storedKey, node);
-								parent.smallKeyCount = 0;
-							}
+							// The 17th key: move the inline entries into the hash index and
+							// continue there.
+							parent.useHashIndex = true;
+							parent.wideKeyIndex.reserve(keyIndexThreshold + 1);
+							for (size_t index = 0; index < parent.smallKeyCount; ++index)
+								parent.wideKeyIndex.assign(parent.smallKeyIndex[index].first,
+									                       parent.smallKeyIndex[index].second);
+							parent.wideKeyIndex.assign(node->name.view(), node);
+							parent.smallKeyCount = 0;
 						}
 					}
 					parent.container->appendNodeToJson(node);
@@ -3985,7 +4121,7 @@ namespace ZJSON {
 							i++;
 							if (stk.size() > static_cast<size_t>(max_depth))
 								return fail("exceeded maximum nesting depth");
-							stk.push_back({ new Json(Type::Object), detail::StoredString(), {}, 0, {}, false, PState::OBJ_COMMA_OR_END });
+							stk.push_back(Frame{ new Json(Type::Object), detail::StoredString(), {}, 0, {}, false, PState::OBJ_COMMA_OR_END });
 							state = PState::OBJ_KEY_OR_END;
 							break;
 						}
@@ -3994,7 +4130,7 @@ namespace ZJSON {
 							i++;
 							if (stk.size() > static_cast<size_t>(max_depth))
 								return fail("exceeded maximum nesting depth");
-							stk.push_back({ new Json(Type::Array), detail::StoredString(), {}, 0, {}, false, PState::ARR_COMMA_OR_END });
+							stk.push_back(Frame{ new Json(Type::Array), detail::StoredString(), {}, 0, {}, false, PState::ARR_COMMA_OR_END });
 							consume_garbage();
 							if (failed) return Json(Type::Error);
 							if (i < str.size() && str[i] == ']') {
