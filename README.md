@@ -159,6 +159,8 @@ Semantics worth knowing
 - Parsing limits nesting to **101 levels**; `cloneChain`/`deleteJson`/pretty printing/comparison are iterative, so a 20000-level document built through the API can be copied, printed, compared and destroyed safely.
 - Equality treats members as a **multiset**: duplicate keys must match in multiplicity and value pairing (parsing itself collapses duplicates; the default policy keeps the last one).
 - Structured bindings work through the ADL `get` + `std::tuple_size`/`std::tuple_element`; `std::get<N>(entry)` is intentionally not provided (adding overloads to `namespace std` for our own types would be undefined behaviour).
+- A JSON **integer literal** (no fraction, no exponent) is stored exactly as `int64`/`uint64` and written back verbatim, so `{"id":9007199254740993}` round-trips; `42.0`, `42e0` and `-0` stay `double` (`isIntegral()` tells them apart). The third numeric state costs no memory - the kind tag lives in the padding that already followed `type`.
+- Performance, and the comparison against nlohmann/json, RapidJSON and simdjson (throughput, node-pool cost, access-path cost, stringify hotspots): see [`docs/性能测试报告.md`](docs/性能测试报告.md), raw medians in `docs/benchmark_2026-09-15_clang64_medians.csv`.
 
 ## Thread safety and memory
 

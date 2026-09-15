@@ -16,6 +16,7 @@
 #include "gtest/gtest.h"
 #include "../src/zjson.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <string>
@@ -296,8 +297,8 @@ TEST(TestParseCoverage, valid_number_forms) {
 	EXPECT_EQ(parseStrict("-0").toString(), "-0");
 	EXPECT_EQ(parseStrict("-0.0").toString(), "-0");
 
-	// R5-1 three-state Number: an integer literal without a fraction or an
-	// exponent is stored as int64/uint64 and survives the round trip exactly.
+	// Integer magnitudes beyond 2^53 are accepted and stored as int64: see the
+	// three-state Number suite in tests/test_number.cpp.
 	EXPECT_TRUE(acceptsStrict("9007199254740993"));
 	EXPECT_TRUE(acceptsStrict("9223372036854775807"));
 	EXPECT_TRUE(acceptsStrict("-9223372036854775808"));
@@ -307,6 +308,36 @@ TEST(TestParseCoverage, valid_number_forms) {
 	// where the historical rounding still applies.
 	EXPECT_EQ(parseStrict("18446744073709551616").toString(), "18446744073709551616");
 	EXPECT_FALSE(parseStrict("18446744073709551616").isIntegral());
+}
+
+TEST(TestParseCoverage, out_of_range_magnitudes_are_decided_from_the_literal) {
+	// Review N3: std::from_chars is only required to set result_out_of_range - what
+	// it leaves in the double is unspecified - so the overflow/underflow decision is
+	// taken from the literal (leadingDecimalExponent/outOfRangeMagnitude) instead of
+	// from the saturated value.  These pin both directions, with and without an
+	// explicit exponent.
+	EXPECT_EQ(parseStrict("1e999").toDouble(), HUGE_VAL);
+	EXPECT_EQ(parseStrict("-1e+9999").toDouble(), -HUGE_VAL);
+	EXPECT_EQ(parseStrict("1.5e9999").toDouble(), HUGE_VAL);
+	EXPECT_EQ(parseStrict("1e309").toDouble(), HUGE_VAL);
+	EXPECT_EQ(parseStrict("1" + std::string(400, '0')).toDouble(), HUGE_VAL);
+	EXPECT_EQ(parseStrict("1" + std::string(400, '0') + "e-10").toDouble(), HUGE_VAL);
+
+	EXPECT_EQ(parseStrict("1e-999").toDouble(), 0.0);
+	EXPECT_EQ(parseStrict("-1e-999").toDouble(), 0.0);
+	EXPECT_TRUE(std::signbit(parseStrict("-1e-999").toDouble()));
+	EXPECT_EQ(parseStrict("1.5e-9999").toDouble(), 0.0);
+	EXPECT_EQ(parseStrict("0." + std::string(330, '0') + "1").toDouble(), 0.0);
+	EXPECT_EQ(parseStrict("0.5e-400").toDouble(), 0.0);
+
+	// Representable boundaries must not be caught by that path.
+	EXPECT_GT(parseStrict("5e-324").toDouble(), 0.0);                 // smallest denormal
+	EXPECT_TRUE(std::isfinite(parseStrict("1.7976931348623157e308").toDouble()));
+	EXPECT_EQ(parseStrict("1e308").toDouble(), 1e308);
+
+	// Non-finite numbers still serialize as null (unchanged).
+	EXPECT_EQ(parseStrict("1e999").toString(), "null");
+	EXPECT_EQ(parseStrict("-1e999").toString(), "null");
 }
 
 TEST(TestParseCoverage, invalid_number_forms) {

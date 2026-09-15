@@ -360,3 +360,32 @@ TEST(TestNumber, large_arrays_of_wide_integers_round_trip) {
 	EXPECT_EQ(reparsed.toString(), text);
 	EXPECT_TRUE(reparsed[0].isIntegral());
 }
+
+// -----------------------------------------------------------------------------
+// Review N5: the "not found" sentinel that atRef() returns.
+// -----------------------------------------------------------------------------
+
+TEST(TestNumber, error_sentinel_is_one_stable_node_per_thread) {
+	Json doc;
+	doc.add("a", 1);
+
+	// The sentinel is a single node shared by every failed lookup on this thread, so
+	// its address is stable and it is const - callers can compare against it but
+	// cannot write through it.
+	const Json& first = doc.atRef("/missing");
+	const Json& second = doc.atRef("/missing");
+	EXPECT_EQ(&first, &second);
+	EXPECT_TRUE(first.isError());
+	EXPECT_EQ(first.toString(), "");
+	EXPECT_FALSE(first.isNumber());
+
+	// A lookup that succeeds never hands out the sentinel.
+	const Json& found = doc.atRef("/a");
+	EXPECT_NE(&found, &first);
+	EXPECT_EQ(found.toInt(), 1);
+
+	// And the sentinel is not reachable from any document.
+	EXPECT_FALSE(doc.contains("missing"));
+	EXPECT_EQ(doc.size(), -1);            // an object is not an array
+	EXPECT_EQ(doc.toString(), "{\"a\":1}");
+}

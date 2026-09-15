@@ -163,6 +163,8 @@ enum class JsonType
 - 解析限深 **101 层**；`cloneChain`/`deleteJson`/美化打印/比较均已迭代化，因此通过 API 自建的 20000 层文档可以安全拷贝、打印、比较与销毁。
 - 相等性把成员当**多重集**：重复键必须数量与取值配对一致（解析本身会合并重复键，默认保留最后一个）。
 - 结构化绑定依赖 ADL `get` + `std::tuple_size`/`std::tuple_element`；**刻意不提供** `std::get<N>(entry)`（为自己的类型向 `namespace std` 加重载是 UB）。
+- **整数字面量**（无小数点、无指数）按 `int64`/`uint64` 精确存储并原样写回，`{"id":9007199254740993}` 往返不变；`42.0`、`42e0` 与 `-0` 仍按 `double` 处理（用 `isIntegral()` 区分）。第三个数值状态**不增加节点内存**：kind 标记落在 `type` 之后原有的填充位。
+- 性能，以及与 nlohmann/json、RapidJSON、simdjson 的对比（吞吐、节点池开销、取值路径开销、stringify 热点）：见 [`docs/性能测试报告.md`](docs/性能测试报告.md)，原始中位数数据在 `docs/benchmark_2026-09-15_clang64_medians.csv`。
 
 ## 线程与内存契约
 

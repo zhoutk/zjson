@@ -431,18 +431,98 @@ namespace ZJSON {
 		// the parsing rules stay in one readable block.
 		inline bool parseSpecialOrHex(string_view text, double& out);
 
+		// Decimal exponent of the leading significant digit of a numeric literal:
+		// "0.5" -> -1, "123" -> 2, "1e-999" -> -999, "0.0001e+5" -> 1.  Returns false
+		// for a literal without a significant digit (a pure zero, which never goes out of
+		// range).  Only used to decide the SIGN of a magnitude far outside the double
+		// range, so the explicit exponent is saturated rather than accumulated exactly -
+		// no real literal comes close to the bound.
+		inline bool leadingDecimalExponent(string_view text, long long& exponent) {
+			size_t cursor = 0;
+			if (cursor < text.size() && (text[cursor] == '+' || text[cursor] == '-'))
+				++cursor;
+
+			size_t digitsSeen = 0;
+			size_t digitsBeforePoint = 0;
+			size_t firstSignificant = 0;
+			bool sawPoint = false;
+			bool found = false;
+
+			size_t at = cursor;
+			for (; at < text.size(); ++at) {
+				const char ch = text[at];
+				if (ch >= '0' && ch <= '9') {
+					if (!found && ch != '0') {
+						found = true;
+						firstSignificant = digitsSeen;
+					}
+					++digitsSeen;
+					if (!sawPoint)
+						++digitsBeforePoint;
+					continue;
+				}
+				if (ch == '.' && !sawPoint) {
+					sawPoint = true;
+					continue;
+				}
+				break;                                  // 'e'/'E', or the end of the number
+			}
+			if (!found)
+				return false;
+
+			// Place value of the leading significant digit, as a power of ten.
+			long long place = static_cast<long long>(digitsBeforePoint) - 1 -
+				static_cast<long long>(firstSignificant);
+
+			long long scale = 0;
+			if (at < text.size() && (text[at] == 'e' || text[at] == 'E')) {
+				size_t k = at + 1;
+				bool negative = false;
+				if (k < text.size() && (text[k] == '+' || text[k] == '-')) {
+					negative = text[k] == '-';
+					++k;
+				}
+				for (; k < text.size() && text[k] >= '0' && text[k] <= '9'; ++k) {
+					if (scale < 1000000000LL)
+						scale = scale * 10 + (text[k] - '0');
+				}
+				if (negative)
+					scale = -scale;
+			}
+
+			exponent = place + scale;
+			return true;
+		}
+
+		// Result for a literal that std::from_chars reported as out of range.
+		//
+		// The standard only requires the error code in that case: what from_chars leaves
+		// in the `double` is unspecified, and all three standard libraries happen to
+		// saturate it to +/-inf (overflow) or +/-0 (underflow).  Rather than depend on
+		// that, the direction is read off the literal - a magnitude at or above 1
+		// overflowed, one below 1 underflowed.  This path is only reached for magnitudes
+		// far outside the double range, so its cost does not matter.
+		inline double outOfRangeMagnitude(string_view text) {
+			const bool negative = !text.empty() && text[0] == '-';
+			long long exponent = 0;
+			if (!leadingDecimalExponent(text, exponent) || exponent >= 0)
+				return negative ? -HUGE_VAL : HUGE_VAL;
+			return negative ? -0.0 : 0.0;
+		}
+
 		// Locale-independent double parsing. std::from_chars never consults
 		// LC_NUMERIC, unlike std::strtod, so "1.5" is not truncated to 1 in
 		// comma-decimal locales. Out-of-range magnitudes keep the historical
 		// strtod behaviour (saturate to +/-inf or 0), which also keeps the
-		// implementation-defined "huge exponent" inputs accepted.
+		// implementation-defined "huge exponent" inputs accepted - but the
+		// saturation is decided here from the literal, not taken from from_chars.
 		inline double parseDoubleImpl(string_view text, std::true_type /*has_from_chars*/) {
 			double value = 0.0;
 			auto res = std::from_chars(text.data(), text.data() + text.size(), value);
 			if (res.ec == std::errc{})
 				return value;
 			if (res.ec == std::errc::result_out_of_range)
-				return value;                       // from_chars already saturated it
+				return outOfRangeMagnitude(text);
 			return parseSpecialOrHex(text, value) ? value : 0.0;
 		}
 
@@ -573,7 +653,7 @@ namespace ZJSON {
 			if (res.ec == std::errc{})
 				return value;
 			if (res.ec == std::errc::result_out_of_range)
-				return value;							// from_chars saturated it to +/-inf or 0
+				return outOfRangeMagnitude(text);		// not from_chars' saturation
 			return 0.0;
 		}
 
@@ -1495,6 +1575,14 @@ namespace ZJSON {
 		}
 
 		// Queues every member pair of two objects that still has to be compared deeply.
+		//
+		// Members are grouped by key first, so the ordinary shape (one member per key) is
+		// linear.  The one quadratic shape left is many *duplicate* members of the same key,
+		// all of the same type, that are not deeply equal: pairing them is a multiset
+		// matching, and each member scans the still-unused candidates of its key.  That
+		// shape is rare, the member counts already have to match, and the deep comparisons
+		// it performs are the ones the result actually depends on - so it is documented
+		// rather than bounded by another index (see the review's N4).
 		template <typename WorkStack>
 		bool compareObjects(const Json& lhs, const Json& rhs, WorkStack& work) const {
 			const size_t lhsCount = lhs.childCount();
@@ -2068,23 +2156,48 @@ namespace ZJSON {
 		}
 
 		// Direct member lookup through the lazy key index; nullptr when absent.
-		const Json* directMemberPtr(string_view key) const {
+		//
+		// The index is keyed by std::string and C++17 unordered_map has no heterogeneous
+		// lookup, so a lookup needs a key of exactly that type.  Callers that already hold
+		// one - operator[], contains, try_get, take - go through the reference overload and
+		// pay nothing; the string_view form used by JSON Pointer evaluation and findPtr
+		// builds one temporary, which costs an allocation only when the key is longer than
+		// the small-string buffer (libc++ > 22, libstdc++/MSVC > 15).  The index cannot be
+		// keyed by string_view instead: those views would dangle as soon as a member is
+		// renamed or the arena that backs a parsed key dies.  A C++20 build could add a
+		// transparent hash and drop the temporary entirely.
+		const Json* directMemberPtr(const string& key) const {
 			if (this->type != Type::Object || !this->child)
 				return nullptr;
 			if (!this->keymap)
 				buildKeymap();
-			auto found = this->keymap->find(string(key));
+			auto found = this->keymap->find(key);
 			return found == this->keymap->end() ? nullptr : found->second;
+		}
+
+		const Json* directMemberPtr(string_view key) const {
+			return this->directMemberPtr(string(key));
 		}
 
 		// Resolves a key the way operator[] does: the direct member wins, otherwise the
 		// deep-search fallback runs.  Returns a pointer into the document, or nullptr.
-		const Json* resolveMemberPtr(string_view key) const {
+		// The two overloads keep the temporary key described above away from callers that
+		// already have a std::string.
+		template <typename Key>
+		const Json* resolveMemberPtrWith(const Key& key) const {
 			if (this->type != Type::Object || !this->child)
 				return nullptr;
 			if (const Json* direct = directMemberPtr(key))
 				return direct;
 			return findPtrDeep(key);
+		}
+
+		const Json* resolveMemberPtr(const string& key) const {
+			return this->resolveMemberPtrWith(key);
+		}
+
+		const Json* resolveMemberPtr(string_view key) const {
+			return this->resolveMemberPtrWith(key);
 		}
 
 		Json operator[](const string& key) const {
@@ -2430,11 +2543,18 @@ namespace ZJSON {
 			return errorSentinel();
 		}
 
-		// Stable node handed out by reference for "not found". thread_local, so two
+		// Stable node handed out by reference for "not found".  One per thread, so two
 		// threads never observe each other's sentinel.
+		//
+		// It is allocated once and deliberately never destroyed: a thread_local object
+		// would hand its block back to the thread's node pool at thread exit, and the
+		// destruction order between the sentinel and that pool is not something this
+		// library can rely on.  One node per thread for the process lifetime is the same
+		// trade-off the pool itself makes.  Callers must not write through the reference -
+		// it is const, and every failed lookup on this thread shares it.
 		static const Json& errorSentinel() {
-			static thread_local const Json sentinel(Type::Error);
-			return sentinel;
+			static thread_local const Json* sentinel = new Json(Type::Error);
+			return *sentinel;
 		}
 
 		// ---------------------------------------------------------------------------

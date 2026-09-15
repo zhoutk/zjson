@@ -131,6 +131,26 @@ TEST(TestAdvanced, equality_handles_duplicate_keys_as_a_multiset) {
 	Json arrayB("[1,2,1]");
 	EXPECT_FALSE(arrayA == arrayB);
 	EXPECT_TRUE(arrayA == Json("[1,1,2]"));
+
+	// Review N4: many duplicates of the *same* key and type is the one quadratic
+	// shape left in compareObjects (pairing them is a multiset matching).  Keep a
+	// case that exercises that loop with a meaningful count while staying fast, and
+	// pin that the multiset semantics hold at that size.
+	Json manyA;
+	Json manyB;
+	Json manyC;
+	for (int i = 0; i < 200; ++i) {
+		manyA.add("k", i);
+		manyB.add("k", 199 - i);                 // same multiset, reversed
+		manyC.add("k", i == 0 ? -1 : i);         // one member differs
+	}
+	EXPECT_TRUE(manyA == manyB);
+	EXPECT_FALSE(manyA == manyC);
+
+	Json fewerForSame;
+	for (int i = 1; i < 200; ++i)
+		fewerForSame.add("k", i);                // one member less than manyA
+	EXPECT_FALSE(manyA == fewerForSame);
 }
 
 TEST(TestAdvanced, equality_is_cheap_for_mismatched_sizes_and_deep_documents) {

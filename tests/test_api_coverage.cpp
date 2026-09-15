@@ -15,6 +15,9 @@
 //    7. iterators (range-for, structured bindings, tuple protocol, traits)
 //    8. equality
 //    9. lifecycle / stress behaviour, including an allocation-growth smoke test
+//       (see the counters at their definition: they cannot see allocations made
+//       inside the shared standard library on every build, which is why the tests
+//       that depend on that check the harness first)
 //
 //  Parser-focused coverage (strict/extension modes, UTF-8 validation, depth,
 //  duplicate-key policies, error positions, file loading) lives in
@@ -50,6 +53,12 @@ size_t g_allocCount = 0;
 size_t g_freeCount = 0;
 size_t g_allocBytes = 0;
 
+// Allocations of at least this many bytes.  A test can set it to the size of a
+// document to count how many buffers large enough to hold that document were
+// created - N1 asserts that loading a document file makes exactly one.
+size_t g_bigAllocThreshold = static_cast<size_t>(-1);
+size_t g_bigAllocCount = 0;
+
 struct AllocSnapshot {
 	size_t count;
 	size_t bytes;
@@ -58,31 +67,34 @@ struct AllocSnapshot {
 AllocSnapshot allocationSnapshot() { return AllocSnapshot{ g_allocCount, g_allocBytes }; }
 
 size_t allocationsBetween(const AllocSnapshot& from) { return g_allocCount - from.count; }
+
+void noteAllocation(size_t size) {
+	++g_allocCount;
+	g_allocBytes += size;
+	if (size >= g_bigAllocThreshold)
+		++g_bigAllocCount;
+}
 } // namespace
 
 void* operator new(size_t size) {
-	++g_allocCount;
-	g_allocBytes += size;
+	noteAllocation(size);
 	if (void* p = std::malloc(size)) return p;
 	throw std::bad_alloc();
 }
 
 void* operator new[](size_t size) {
-	++g_allocCount;
-	g_allocBytes += size;
+	noteAllocation(size);
 	if (void* p = std::malloc(size)) return p;
 	throw std::bad_alloc();
 }
 
 void* operator new(size_t size, const std::nothrow_t&) noexcept {
-	++g_allocCount;
-	g_allocBytes += size;
+	noteAllocation(size);
 	return std::malloc(size);
 }
 
 void* operator new[](size_t size, const std::nothrow_t&) noexcept {
-	++g_allocCount;
-	g_allocBytes += size;
+	noteAllocation(size);
 	return std::malloc(size);
 }
 
@@ -92,6 +104,48 @@ void operator delete(void* ptr, size_t) noexcept { ++g_freeCount; std::free(ptr)
 void operator delete[](void* ptr, size_t) noexcept { ++g_freeCount; std::free(ptr); }
 void operator delete(void* ptr, const std::nothrow_t&) noexcept { ++g_freeCount; std::free(ptr); }
 void operator delete[](void* ptr, const std::nothrow_t&) noexcept { ++g_freeCount; std::free(ptr); }
+
+// -----------------------------------------------------------------------------
+// The counters above only tell the truth where this binary's replaced new/delete
+// actually sees the allocation.
+//
+// Allocations issued by header-inlined code always land here - that covers the
+// node pool (`Json::operator new`) and the test's own containers.  Allocations
+// issued *inside* the shared standard library do not: at -O0 clang does not inline
+// libc++'s string allocation path, and on Windows a call made from the shared
+// library resolves operator new for itself rather than to this binary.  Measured
+// on this toolchain: at -O2 a 400 KB std::string is counted, at -O0 + ASan it is
+// not, while Json node allocations are counted in both (which is why the node
+// steady-state tests stay valid at -O0).
+//
+// A test that counts standard-library allocations must therefore check the harness
+// first.  Without this check a blind counter silently turns "allocates nothing"
+// into a pass and "allocates exactly one buffer" into a bogus failure.
+// -----------------------------------------------------------------------------
+namespace {
+bool standardLibraryAllocationsAreCounted() {
+	const size_t savedThreshold = g_bigAllocThreshold;
+	const size_t savedCount = g_bigAllocCount;
+	g_bigAllocThreshold = 64 * 1024;
+	{
+		const std::string probe(128 * 1024, 'x');
+		(void)probe;
+	}
+	const bool counted = g_bigAllocCount > savedCount;
+	g_bigAllocCount = savedCount;
+	g_bigAllocThreshold = savedThreshold;
+	return counted;
+}
+} // namespace
+
+#define ZJSON_SKIP_UNLESS_STDLIB_ALLOCATIONS_ARE_COUNTED()                           \
+	do {                                                                             \
+		if (!standardLibraryAllocationsAreCounted())                                 \
+			GTEST_SKIP() << "this build does not route standard-library allocations "  \
+			                "through the replaced global new/delete (an unoptimised "  \
+			                "or ASan build keeps them inside the shared library), so "  \
+			                "these allocation counts are meaningless";                 \
+	} while (false)
 
 // =============================================================================
 // 1. Constructors and special member functions
@@ -1833,4 +1887,94 @@ TEST(TestApiCoverage, document_can_be_mutated_on_another_thread_than_it_was_buil
 	// Final release on yet another owner (this thread).
 	consumer.clear();
 	EXPECT_EQ(consumer.toString(), "{}");
+}
+
+// =============================================================================
+// 10. Third-party review round 3 follow-ups (N1, N2)
+// =============================================================================
+
+TEST(TestApiCoverage, from_file_does_not_copy_the_document_text) {
+	// N1: reading a document file must not hold two document-sized buffers.  The
+	// buffer the file is read into becomes the arena's storage, so exactly one
+	// allocation is large enough to hold the document; the earlier implementation
+	// (read buffer + parse through a const string&, which copies into the arena)
+	// made this 2.
+	//
+	// "Large enough to hold the document" has to exclude the node pool: a slab is
+	// 176 * 1024 = 180224 bytes, so the document below is kept larger than one slab
+	// (and far above any stream buffer) to make the count unambiguous.
+	std::string document = "{\"items\":[";
+	const int itemCount = 12000;
+	for (int i = 0; i < itemCount; ++i) {
+		if (i)
+			document += ',';
+		document += "{\"id\":" + std::to_string(i) + ",\"name\":\"item" + std::to_string(i) + "\"}";
+	}
+	document += "]}";
+	ASSERT_GT(document.size(), 200 * 1024u) << "must exceed a node-pool slab (180224 B)";
+
+	const std::string path = "zjson_from_file_copy_probe.json";
+	{
+		std::ofstream out(path, std::ios::binary);
+		ASSERT_TRUE(out.is_open()) << path;
+		out.write(document.data(), static_cast<std::streamsize>(document.size()));
+	}
+
+	// Removed on every exit path, including the skip below (which is why this is a
+	// guard rather than a call at the end of the test).
+	struct RemoveOnExit {
+		const std::string& path;
+		~RemoveOnExit() { std::remove(path.c_str()); }
+	} removeOnExit{ path };
+
+	g_bigAllocThreshold = document.size();
+	g_bigAllocCount = 0;
+	Json loaded = Json::FromFile(path);
+	g_bigAllocThreshold = static_cast<size_t>(-1);
+
+	std::string err;
+	Json parsed = Json::ParseJson(document, err);
+	ASSERT_FALSE(parsed.isError()) << err;
+
+	// Functional contract first: it holds in every build.
+	EXPECT_EQ(loaded["items"].size(), itemCount);
+	EXPECT_EQ(loaded["items"][itemCount - 1]["id"].toInt(), itemCount - 1);
+	EXPECT_EQ(loaded.toString(), parsed.toString());
+
+	// The counter claim only holds where standard-library allocations are visible.
+	ZJSON_SKIP_UNLESS_STDLIB_ALLOCATIONS_ARE_COUNTED();
+	EXPECT_EQ(g_bigAllocCount, 1u) << "document-sized buffers allocated while loading";
+}
+
+TEST(TestApiCoverage, string_key_entry_points_do_not_build_a_temporary_key) {
+	// N2: the key index is keyed by std::string and C++17 has no heterogeneous
+	// lookup, so the string_view entry points have to build a temporary key.  The
+	// entry points that already receive a std::string must not - with a key this
+	// long such a temporary would be a heap allocation on every single lookup.
+	const std::string longKey(64, 'k');
+	const std::string missingKey = longKey + "-missing";
+	Json doc;
+	doc.add(longKey, 7);
+
+	int value = 0;
+	ASSERT_TRUE(doc.try_get(longKey, value));          // also builds the lazy key index
+	EXPECT_EQ(value, 7);
+
+	// The string_view entry points keep working on the same long key.
+	const Json* found = doc.findPtr(longKey);
+	ASSERT_NE(found, nullptr);
+	EXPECT_EQ(found->toInt(), 7);
+	EXPECT_EQ(doc.at("/" + longKey).toInt(), 7);
+	EXPECT_TRUE(doc.contains(longKey));
+	EXPECT_TRUE(doc[longKey] == Json(7));
+
+	ZJSON_SKIP_UNLESS_STDLIB_ALLOCATIONS_ARE_COUNTED();
+	AllocSnapshot before = allocationSnapshot();
+	for (int i = 0; i < 64; ++i) {
+		value = 0;
+		EXPECT_TRUE(doc.try_get(longKey, value));
+		EXPECT_EQ(value, 7);
+		EXPECT_FALSE(doc.try_get(missingKey, value));
+	}
+	EXPECT_EQ(allocationsBetween(before), 0u) << "hit and miss must both be allocation free";
 }
