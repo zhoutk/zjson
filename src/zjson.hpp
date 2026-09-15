@@ -1135,13 +1135,65 @@ namespace ZJSON {
 			writeCompact(json, sink);
 		}
 
-		// Pre-computed size hint for reserve().  Leaves contribute a constant, so only
-		// containers get a frame, and each is descended into immediately: the stack depth
-		// therefore tracks nesting depth rather than the width of the document (a flat
-		// object with 10k members used to pile up 10k frames here).
+		// Pre-computed size hint for reserve().
+		//
+		// Two implementations behind one entry point.  The recursive one is the fast path
+		// because ordinary documents nest a handful of levels and direct recursion is
+		// cheaper than maintaining frames (measured: a frame-based walk was ~20% slower on
+		// a 10k-member document, and routing every node through a dispatcher kept most of
+		// that cost).  Past maxEstimateRecursion the walk switches to the frame-based
+		// version, so a self-built deep tree is still measured without touching the stack.
+		static constexpr int maxEstimateRecursion = 512;
+
 		size_t estimateSerializedSize(const Json* json, int indentSize = 0, int depth = 0) const {
 			if (!json)
 				return 0;
+			if (depth >= maxEstimateRecursion)
+				return estimateSerializedSizeIterative(json, indentSize, depth);
+			return estimateSerializedSizeRecursive(json, indentSize, depth);
+		}
+
+		size_t estimateSerializedSizeRecursive(const Json* json, int indentSize, int depth) const {
+			switch (json->type) {
+			case Type::Object:
+			case Type::Array: {
+				if (!json->child)
+					return 2;
+				const bool isObject = (json->type == Type::Object);
+				size_t total = 2;
+				size_t members = 0;
+				for (const Json* cur = json->child; cur; cur = cur->brother) {
+					if (isObject)
+						total += cur->name.size() + 3;			// "key":
+					if (indentSize > 0)
+						total += static_cast<size_t>((depth + 1) * indentSize + 1);
+					// Recurse directly: routing each node back through the entry point would
+					// add a dispatch per node and stop the recursion being specialised.
+					if (cur->type == Type::Object || cur->type == Type::Array) {
+						if (depth + 1 < maxEstimateRecursion)
+							total += estimateSerializedSizeRecursive(cur, indentSize, depth + 1);
+						else
+							total += estimateSerializedSizeIterative(cur, indentSize, depth + 1);
+					} else {
+						total += leafSize(cur);
+					}
+					++members;
+				}
+				if (members > 1)
+					total += members - 1;						// separators
+				if (indentSize > 0)
+					total += static_cast<size_t>(depth * indentSize + 2);
+				return total;
+			}
+			default:
+				return leafSize(json);
+			}
+		}
+
+		// Frame-based fallback: leaves contribute a constant, so only containers get a
+		// frame, and each is descended into immediately - the stack depth tracks nesting
+		// depth rather than the width of the document.
+		size_t estimateSerializedSizeIterative(const Json* json, int indentSize, int depth) const {
 			if (json->type != Type::Object && json->type != Type::Array)
 				return leafSize(json);
 
@@ -1468,9 +1520,9 @@ namespace ZJSON {
 		//
 		// Iterative on purpose: the previous recursive version exhausted the call stack at
 		// roughly 8000 levels of nesting (covered by the deep-document tests). Frames hold
-		// one container each and a position in its child chain, so the stack grows with
-		// nesting depth - not with the width of the document - and a flat chain allocates
-		// nothing at all.
+		// one *open container* each and children are descended into immediately, so the
+		// stack tracks nesting depth only - a container with 10k children must not pile up
+		// 10k frames (measured: doing so cost 20% of copy time on a 1MB top-level array).
 		static Json* cloneChain(const Json* source, Json** outTail = nullptr) {
 			if (!source) {
 				if (outTail) *outTail = nullptr;
@@ -1479,25 +1531,16 @@ namespace ZJSON {
 
 			struct Frame {
 				const Json* src;    // container whose children are being cloned
-				Json* dst;          // its clone
-				const Json* next;   // next child of `src` to clone (nullptr when done)
+				Json* dst;          // its clone (nullptr for the top-level chain)
+				const Json* next;   // next child of `src` to clone
 				Json* tail;         // last child appended to `dst`
 			};
 
-			detail::SmallStack<Frame, 64> stack;
+			std::vector<Frame> stack;
+			stack.push_back({ nullptr, nullptr, source, nullptr });   // the top-level chain
+
 			Json* head = nullptr;
 			Json* tail = nullptr;
-
-			for (const Json* cur = source; cur; cur = cur->brother) {
-				Json* node = cloneScalar(cur);
-				if (tail)
-					tail->brother = node;
-				else
-					head = node;
-				tail = node;
-				if (cur->child)
-					stack.push_back({ cur, node, cur->child, nullptr });
-			}
 
 			while (!stack.empty()) {
 				Frame& frame = stack.back();
@@ -1508,14 +1551,24 @@ namespace ZJSON {
 
 				const Json* cur = frame.next;
 				Json* node = cloneScalar(cur);
+
 				// Update the frame completely before pushing (push_back may reallocate).
 				frame.next = cur->brother;
-				if (frame.tail)
+				if (!frame.dst) {                      // top-level chain
+					if (tail)
+						tail->brother = node;
+					else
+						head = node;
+					tail = node;
+				} else if (frame.tail) {
 					frame.tail->brother = node;
-				else
+					frame.tail = node;
+					frame.dst->lastChild = node;
+				} else {
 					frame.dst->child = node;
-				frame.tail = node;
-				frame.dst->lastChild = node;
+					frame.tail = node;
+					frame.dst->lastChild = node;
+				}
 
 				if (cur->child)
 					stack.push_back({ cur, node, cur->child, nullptr });
@@ -3048,32 +3101,39 @@ namespace ZJSON {
 				(*self->keymap)[node->name.str()] = node;
 		}
 
-		// Releases a node and its whole subtree. The block that the node came from is
-		// returned to this thread's pool, so this is deliberately not recursive: a deep
-		// document must be destroyable without growing the call stack.
+		// Releases a node and its whole subtree. The block each node came from returns to
+		// this thread's pool, so this is deliberately not recursive: a deep document must
+		// be destroyable without growing the call stack. Each frame is a position in a
+		// sibling chain and children are released immediately, so the stack follows
+		// nesting depth rather than the width of a chain.
 		static void deleteJson(Json* obj) {
 			if (!obj)
 				return;
 
-			// Child chains still waiting to be released. The vector stays empty for leaf
-			// nodes (the common case), so releasing a single node allocates nothing.
-			detail::SmallStack<Json*, 64> pending;
-			Json* cur = obj;
-			for (;;) {
-				while (cur) {
-					Json* next = cur->brother;
-					if ((cur->type == Type::Object || cur->type == Type::Array) && cur->child)
-						pending.push_back(cur->child);
-					if (cur->keymap) { delete cur->keymap; cur->keymap = nullptr; }
-					cur->child = nullptr;
-					cur->brother = nullptr;
-					delete cur;
-					cur = next;
+			struct Frame {
+				Json* next;     // next node of this chain to release
+			};
+
+			detail::SmallStack<Frame, 64> stack;
+			stack.push_back({ obj });
+
+			while (!stack.empty()) {
+				Frame& frame = stack.back();
+				Json* cur = frame.next;
+				if (!cur) {
+					stack.pop_back();
+					continue;
 				}
-				if (pending.empty())
-					return;
-				cur = pending.back();
-				pending.pop_back();
+
+				// Advance before releasing: `cur` is about to be handed back to the pool.
+				frame.next = cur->brother;
+				if ((cur->type == Type::Object || cur->type == Type::Array) && cur->child)
+					stack.push_back({ cur->child });
+
+				if (cur->keymap) { delete cur->keymap; cur->keymap = nullptr; }
+				cur->child = nullptr;
+				cur->brother = nullptr;
+				delete cur;
 			}
 		}
 

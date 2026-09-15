@@ -462,9 +462,12 @@ void bench_simdjson(const std::vector<Dataset>& datasets, std::vector<BenchResul
 
 int main(int argc, char* argv[]) {
     std::string csvPath;
+    std::string onlySection;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--csv") == 0 && i + 1 < argc) {
             csvPath = argv[++i];
+        } else if (std::strcmp(argv[i], "--only") == 0 && i + 1 < argc) {
+            onlySection = argv[++i];
         }
     }
 
@@ -489,47 +492,55 @@ int main(int argc, char* argv[]) {
 
     std::vector<BenchResult> results;
 
-    // Node pool cost is measured FIRST: it is sensitive to machine state, and running it
-    // after the comparative/hotspot sections made its numbers depend on what those
-    // sections had done to the caches (the same code measured 25 ns/node on its own and
-    // 35 ns/node when timed last).
-    bench_zjson_pool_cost(datasets, results);
+    // Sections can be selected individually.  Measurements of one section are affected by
+    // what ran before it (the same code measured 25 ns/node alone and 35 ns/node when
+    // timed after the comparative section), so an A/B comparison should run one section
+    // per process:  bench_zjson --only pool   /   --only comparative
+    const bool all = onlySection.empty();
+    auto wantSection = [&](const char* name) {
+        return all || onlySection == name;
+    };
 
-    // Access-path cost of the reference API compared with operator[] (see the section
-    // comment above bench_zjson_access_paths).
-    bench_zjson_access_paths(results);
+    if (wantSection("pool"))
+        bench_zjson_pool_cost(datasets, results);
 
-    bench_zjson(datasets, results);
+    if (wantSection("access"))
+        bench_zjson_access_paths(results);
+
+    if (wantSection("comparative")) {
+        bench_zjson(datasets, results);
 #if ZJSON_BENCH_HAS_NLOHMANN
-    bench_nlohmann(datasets, results);
+        bench_nlohmann(datasets, results);
 #endif
 #if ZJSON_BENCH_HAS_RAPIDJSON
-    bench_rapidjson(datasets, results);
+        bench_rapidjson(datasets, results);
 #endif
 #if ZJSON_BENCH_HAS_SIMDJSON
-    bench_simdjson(datasets, results);
+        bench_simdjson(datasets, results);
 #endif
 
-    std::cout << std::left << std::setw(11) << "library"
-              << std::setw(16) << "operation"
-              << std::setw(18) << "dataset"
-              << " size      iters time          throughput" << std::endl;
-    for (const auto& result : results) {
-        print_result(result);
+        std::cout << std::left << std::setw(11) << "library"
+                  << std::setw(16) << "operation"
+                  << std::setw(18) << "dataset"
+                  << " size      iters time          throughput" << std::endl;
+        for (const auto& result : results) {
+            print_result(result);
+        }
     }
 
     std::vector<BenchResult> hotspotResults;
-    bench_zjson_stringify_hotspots(hotspotResults);
-    std::cout << std::endl << "=== zjson stringify hotspot microbench ===" << std::endl;
-    std::cout << std::left << std::setw(11) << "library"
-              << std::setw(16) << "operation"
-              << std::setw(18) << "dataset"
-              << " size      iters time          throughput" << std::endl;
-    for (const auto& result : hotspotResults) {
-        print_result(result);
+    if (wantSection("hotspot")) {
+        bench_zjson_stringify_hotspots(hotspotResults);
+        std::cout << std::endl << "=== zjson stringify hotspot microbench ===" << std::endl;
+        std::cout << std::left << std::setw(11) << "library"
+                  << std::setw(16) << "operation"
+                  << std::setw(18) << "dataset"
+                  << " size      iters time          throughput" << std::endl;
+        for (const auto& result : hotspotResults) {
+            print_result(result);
+        }
+        results.insert(results.end(), hotspotResults.begin(), hotspotResults.end());
     }
-
-    results.insert(results.end(), hotspotResults.begin(), hotspotResults.end());
 
     write_csv(csvPath, results);
     if (!csvPath.empty())
