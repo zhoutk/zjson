@@ -583,6 +583,27 @@ TEST(TestParseCoverage, from_file_cases) {
 	}
 	EXPECT_TRUE(Json::FromFile(path).isString());
 
+	// A file whose content looks like a document but is not valid JSON is reported as an
+	// error: FromFile hands document-shaped input to the parser (which also avoids a
+	// second copy of the text), so a broken configuration file fails loudly instead of
+	// being silently stored as a string. The string constructor keeps its historical
+	// fallback (see lenient_constructor_fallback_rules).
+	{
+		std::ofstream out(path, std::ios::binary);
+		out << "{\"broken\": }";
+	}
+	EXPECT_TRUE(Json::FromFile(path).isError());
+
+	// A file that is not document-shaped keeps the historical behaviour of becoming a
+	// string value holding the raw text (quotes included - the string constructor is a
+	// "text" fallback, not a JSON string parser).
+	{
+		std::ofstream out(path, std::ios::binary);
+		out << "\"just text\"";
+	}
+	EXPECT_TRUE(Json::FromFile(path).isString());
+	EXPECT_EQ(Json::FromFile(path).toString(), "\"just text\"");
+
 	// Missing paths and empty path names are errors.
 	EXPECT_TRUE(Json::FromFile("definitely/missing/zjson.json").isError());
 	EXPECT_TRUE(Json::FromFile(std::string("definitely/missing/zjson.json")).isError());

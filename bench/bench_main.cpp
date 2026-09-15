@@ -338,6 +338,63 @@ void bench_zjson_pool_cost(const std::vector<Dataset>& datasets, std::vector<Ben
                         itersPerThread * threads, mt_ms, mt_mb_s });
 }
 
+// ---------------------------------------------------------------------------
+// Access-path diagnostics.
+//
+// operator[] hands out a copy, so a chained read of a container member deep-copies
+// the subtree on every step. atRef()/findPtr()/findPtrAt() were added for exactly
+// that pattern; this section quantifies the difference on a nested document.
+// ---------------------------------------------------------------------------
+void bench_zjson_access_paths(std::vector<BenchResult>& results) {
+	ZJSON::Json document;
+	ZJSON::Json items(ZJSON::JsonType::Array);
+	for (int i = 0; i < 200; ++i)
+		items.add(ZJSON::Json{ {"id", i}, {"name", "item_" + std::to_string(i)},
+		                      {"tags", ZJSON::Json(ZJSON::JsonType::Array).add({"a", "b", "c"})},
+		                      {"meta", ZJSON::Json{ {"x", i}, {"y", i * 2} }} });
+	document.add("items", items);
+	document.add("count", 200);
+
+	// The by-value path deep-copies a 200-member array per lookup, so the iteration count
+	// stays modest: this section measures the cost difference, not throughput. Each lambda
+	// performs ONE access - the runner owns the loop.
+	const int iterations = 3000;
+	const Dataset accessDataset{ "nested_200", "document with 200 nested objects" };
+	int cursor = 0;
+
+	auto byValue = [&]() {
+		consume(static_cast<size_t>(document["items"][cursor++ % 200]["meta"]["x"].toInt()));
+	};
+
+	auto byReference = [&]() {
+		consume(static_cast<size_t>(document.atRef("/count").toInt()));
+	};
+
+	auto byPointerWrite = [&]() {
+		*document.findPtr("count") = ZJSON::Json(cursor++ % 200);
+	};
+
+	byValue();          // warm up
+	byReference();
+	byPointerWrite();
+
+	const BenchResult value = run_hotspot_bench("access_by_value", accessDataset, iterations, byValue);
+	const BenchResult reference = run_hotspot_bench("access_by_reference", accessDataset, iterations, byReference);
+	const BenchResult write = run_hotspot_bench("access_pointer_write", accessDataset, iterations, byPointerWrite);
+
+	std::cout << std::endl << "=== zjson access path cost (per lookup, nested_200) ===" << std::endl;
+	std::cout << "operator[] chained read : " << std::fixed << std::setprecision(1)
+	          << (value.total_ms * 1e6 / iterations) << " ns  (returns copies, deep-copies the subtree)" << std::endl;
+	std::cout << "atRef() read            : " << std::fixed << std::setprecision(1)
+	          << (reference.total_ms * 1e6 / iterations) << " ns  (reference, no copy)" << std::endl;
+	std::cout << "findPtr() write         : " << std::fixed << std::setprecision(1)
+	          << (write.total_ms * 1e6 / iterations) << " ns  (pointer, in place)" << std::endl;
+
+	results.push_back(value);
+	results.push_back(reference);
+	results.push_back(write);
+}
+
 #if ZJSON_BENCH_HAS_NLOHMANN
 void bench_nlohmann(const std::vector<Dataset>& datasets, std::vector<BenchResult>& results) {
     for (const auto& ds : datasets) {
@@ -437,6 +494,10 @@ int main(int argc, char* argv[]) {
     // sections had done to the caches (the same code measured 25 ns/node on its own and
     // 35 ns/node when timed last).
     bench_zjson_pool_cost(datasets, results);
+
+    // Access-path cost of the reference API compared with operator[] (see the section
+    // comment above bench_zjson_access_paths).
+    bench_zjson_access_paths(results);
 
     bench_zjson(datasets, results);
 #if ZJSON_BENCH_HAS_NLOHMANN

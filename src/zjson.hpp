@@ -85,7 +85,8 @@ namespace ZJSON {
 		// decoded (escapes) - those live in chunked bump storage, so materialising N
 		// strings costs one allocation per 4 KB chunk instead of one per string.
 		struct StringArena {
-			explicit StringArena(string text) : source(std::make_shared<string>(std::move(text))) {}
+			explicit StringArena(const string& text) : source(std::make_shared<string>(text)) {}
+			explicit StringArena(string&& text) : source(std::make_shared<string>(std::move(text))) {}
 
 			static constexpr size_t chunkSize = 4096;
 
@@ -1134,69 +1135,59 @@ namespace ZJSON {
 			writeCompact(json, sink);
 		}
 
-		// Pre-computed size hint for reserve().  Iterative for the same reason as the
-		// other traversals, but only containers are stacked: a leaf contributes a constant
-		// amount (plus its key and indentation), so a wide object or a long array of
-		// scalars is measured with a single walk and no bookkeeping.
+		// Pre-computed size hint for reserve().  Leaves contribute a constant, so only
+		// containers get a frame, and each is descended into immediately: the stack depth
+		// therefore tracks nesting depth rather than the width of the document (a flat
+		// object with 10k members used to pile up 10k frames here).
 		size_t estimateSerializedSize(const Json* json, int indentSize = 0, int depth = 0) const {
 			if (!json)
 				return 0;
+			if (json->type != Type::Object && json->type != Type::Array)
+				return leafSize(json);
 
 			struct Frame {
-				const Json* node;
+				const Json* container;   // container being accounted for
+				const Json* next;        // next member to account for
+				size_t members;          // members seen so far (separators count at close)
 				int depth;
 			};
 
 			size_t total = 0;
 			detail::SmallStack<Frame, 64> containers;
-			containers.push_back({ json, depth });
+
+			auto openContainer = [&](const Json* container, int containerDepth) {
+				total += 2;                                     // braces
+				if (indentSize > 0 && container->child)
+					total += static_cast<size_t>(containerDepth * indentSize + 1);   // closing '\n' + indent
+				containers.push_back({ container, container->child, 0, containerDepth });
+			};
+
+			openContainer(json, depth);
 
 			while (!containers.empty()) {
-				const Frame frame = containers.back();
-				containers.pop_back();
-				const Json* node = frame.node;
+				Frame& frame = containers.back();
+				const Json* cur = frame.next;
+				if (!cur) {
+					if (frame.members > 1)
+						total += frame.members - 1;             // separators
+					containers.pop_back();
+					continue;
+				}
 
-				switch (node->type) {
-				case Type::Error:
-					break;
-				case Type::False:
-					total += 5;
-					break;
-				case Type::True:
-					total += 4;
-					break;
-				case Type::Null:
-					total += 4;
-					break;
-				case Type::Number:
-					total += 32;		// generous upper bound for the shortest round-trip form
-					break;
-				case Type::String:
-					total += node->valueString.size() + 2;
-					break;
-				case Type::Object:
-				case Type::Array: {
-					const bool isObject = (node->type == Type::Object);
-					total += 2;                                      // braces
-					if (indentSize > 0 && node->child)
-						total += static_cast<size_t>((frame.depth * indentSize + 1) + (frame.depth * indentSize + 2) - 1);
-					size_t members = 0;
-					for (const Json* cur = node->child; cur; cur = cur->brother) {
-						if (isObject)
-							total += cur->name.size() + 3;			// "key": 
-						if (indentSize > 0)
-							total += static_cast<size_t>((frame.depth + 1) * indentSize + 1);
-						if (cur->type == Type::Object || cur->type == Type::Array)
-							containers.push_back({ cur, frame.depth + 1 });
-						else
-							total += leafSize(cur);
-						++members;
-					}
-					if (members > 1)
-						total += members - 1;					// separators
-					break;
-				}
-				}
+				// Update the frame completely before any push (push_back may reallocate).
+				frame.next = cur->brother;
+				++frame.members;
+
+				const bool isObjectMember = (frame.container->type == Type::Object);
+				if (isObjectMember)
+					total += cur->name.size() + 3;              // "key":
+				if (indentSize > 0)
+					total += static_cast<size_t>((frame.depth + 1) * indentSize + 1);
+
+				if (cur->type == Type::Object || cur->type == Type::Array)
+					openContainer(cur, frame.depth + 1);
+				else
+					total += leafSize(cur);
 			}
 			return total;
 		}
@@ -1417,7 +1408,26 @@ namespace ZJSON {
 
 		static Json parse(const std::string& in, std::string& err, const ParseOptions& options = ParseOptions{})
 		{
-			return parse(std::string(in), err, options);
+			// The arena copies the input once; no temporary std::string is materialised in
+			// between (that would add a second full-size allocation for every parse).
+			err.clear();
+			if (options.validateUtf8) {
+				size_t errPos = 0;
+				if (!validate_utf8_bytes(in, errPos)) {
+					err = "invalid UTF-8 byte at position " + std::to_string(errPos);
+					return Json(Type::Error);
+				}
+			}
+			const size_t inputSize = in.size();
+			auto arena = std::make_shared<detail::StringArena>(in);
+			JsonParser parser{ *arena->source, 0, err, false, options.allowComments, options.duplicateKey, arena };
+			Json result = parser.parse_json_pda();
+			if (result.type == Type::Error)
+				return result;
+			parser.consume_garbage();
+			if (parser.i != inputSize)
+				return parser.fail("unexpected trailing " + esc(arena->source->at(parser.i)));
+			return result;
 		}
 
 		static Json parse(const char* in, std::string& err, const ParseOptions& options = ParseOptions{}) {
@@ -1679,6 +1689,10 @@ namespace ZJSON {
 			}
 		}
 
+		// Reads and parses a file.  Document files ({...} / [...]) go through the
+		// move-parsing entry point, so the buffer the file was read into becomes the
+		// document's storage: a large configuration file is never copied a second time.
+		// Anything else keeps the historical behaviour of becoming a string value.
 		static Json FromFile(const char* filepath) {
 			if (!filepath)
 				return Json(Type::Error);
@@ -1695,7 +1709,7 @@ namespace ZJSON {
 				std::string content(static_cast<size_t>(size), '\0');
 				file.seekg(0, std::ios::beg);
 				if (file.read(&content[0], size))
-					return Json(content);
+					return fromFileContent(std::move(content));
 				return Json(Type::Error);
 			}
 
@@ -1704,6 +1718,23 @@ namespace ZJSON {
 			std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 			if (content.empty())
 				return Json(Type::Error);
+			return fromFileContent(std::move(content));
+		}
+
+		// Dispatches file content to the cheapest correct entry point: a document is parsed
+		// in place (one copy, inside the arena), anything else is stored as text.
+		static Json fromFileContent(std::string&& content) {
+			size_t first = 0;
+			while (first < content.size()) {
+				const char ch = content[first];
+				if (ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r')
+					break;
+				++first;
+			}
+			if (first < content.size() && (content[first] == '{' || content[first] == '[')) {
+				std::string err;
+				return parse(std::move(content), err);
+			}
 			return Json(content);
 		}
 
