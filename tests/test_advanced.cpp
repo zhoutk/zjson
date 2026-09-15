@@ -643,3 +643,100 @@ TEST(TestAdvanced, noexcept_and_return_type_contract) {
 	static_assert(std::is_same<decltype(std::declval<Json&>().findPtr("a")), Json*>::value,
 		"findPtr must return a pointer");
 }
+
+// -----------------------------------------------------------------------------
+// Memory-safety stress (companion to the 2026-09-15 audit): repeated parse/
+// destroy cycles over several shapes, with documents kept alive across rounds
+// (their arenas stay shared) and pool churn from copies/takes/extensions in
+// between.  A double release of a node or a StringArena reference shows up here
+// as an ASan control-block decrement or a corruption abort - see
+// docs/审核报告-2026-09-15-R5-1与N项验收.md for how the historical report's
+// "existing UAF" was traced to a reproducer artifact instead of the library.
+// -----------------------------------------------------------------------------
+namespace {
+std::string makeStressFlat(int n) {
+	std::string s = "{";
+	for (int i = 0; i < n; ++i) {
+		if (i) s += ',';
+		s += "\"k" + std::to_string(i) + "\":";
+		switch (i % 4) {
+		case 0: s += std::to_string(i); break;
+		case 1: s += "\"value_" + std::to_string(i) + "\""; break;
+		case 2: s += (i % 8 == 2) ? "true" : "false"; break;
+		default: s += "null"; break;
+		}
+	}
+	return s + "}";
+}
+
+std::string makeStressEscaped(int n) {
+	std::string s = "[";
+	for (int i = 0; i < n; ++i) {
+		if (i) s += ',';
+		s += "{\"key\\u00e9" + std::to_string(i) +
+			"\":\"value with \\n escapes \\t and \\\"quotes\\\" " + std::to_string(i) + "\"}";
+	}
+	return s + "]";
+}
+
+std::string makeStressMixed(int items) {
+	std::string s = "[";
+	for (int i = 0; i < items; ++i) {
+		if (i) s += ',';
+		s += "{\"id\":" + std::to_string(i) + ",\"name\":\"item_" + std::to_string(i) +
+			"\",\"tags\":[\"a\",\"b\",\"c\"],\"meta\":{\"x\":" + std::to_string(i) + "}}";
+	}
+	return s + "]";
+}
+} // namespace
+
+TEST(TestAdvanced, parse_destroy_churn_with_surviving_documents_is_clean) {
+	const std::vector<std::string> sets = {
+		makeStressFlat(300),
+		makeStressEscaped(300),
+		makeStressMixed(150),
+	};
+
+	std::vector<Json> survivors;
+	for (const auto& text : sets) {
+		std::string err;
+		Json doc = Json::ParseJson(text, err);
+		ASSERT_TRUE(err.empty()) << err;
+		survivors.push_back(std::move(doc));
+	}
+
+	for (int round = 0; round < 12; ++round) {
+		for (size_t i = 0; i < sets.size(); ++i) {
+			std::string err;
+			Json doc = Json::ParseJson(sets[i], err);
+			ASSERT_TRUE(err.empty()) << err;
+
+			const std::string serialized = doc.toString();
+			Json copy = doc;                                   // cloneChain under churn
+			EXPECT_EQ(copy.toString(), serialized);
+
+			// Detach a member: arrays by index, the flat object by key.
+			Json taken = doc.isArray() ? doc.take(0) : doc.take(std::string("k0"));
+			EXPECT_FALSE(taken.isError());
+			EXPECT_FALSE(taken.toString().empty());
+
+			doc.add("extra", Json(round));                     // key index assign
+			if (doc.isObject())
+				EXPECT_TRUE(doc.contains("extra"));
+
+			Json extension;                                    // Object: extend path
+			extension.extend(doc);
+			extension.mergePatch(doc);                         // merge-patch path
+			Json arrayExtension(ZJSON::JsonType::Array);
+			arrayExtension.concat(doc);                        // concat under churn
+		}
+		// Replace one survivor so its arena is released while others keep going.
+		std::string err;
+		survivors[static_cast<size_t>(round) % survivors.size()] =
+			Json::ParseJson(sets[static_cast<size_t>(round) % sets.size()], err);
+		ASSERT_TRUE(err.empty()) << err;
+	}
+
+	for (const auto& survivor : survivors)
+		EXPECT_FALSE(survivor.toString().empty());
+}

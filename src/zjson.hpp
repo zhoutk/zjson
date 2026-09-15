@@ -152,56 +152,139 @@ namespace ZJSON {
 		};
 
 		class StoredString {
-			mutable string owned;
-			mutable string_view ref;
-			mutable std::shared_ptr<StringArena> arena;
-			mutable bool usingRef;
+			// R2 (2026-09-15): a StoredString is EITHER an owned std::string OR a view
+			// borrowed from a shared StringArena - never both at once (every mutation
+			// switches the tag and drops the arena, and view() reads exactly one of the
+			// two).  A tagged union therefore stores only the live alternative: 40 bytes
+			// instead of 64, which shrinks every Json node by 48 bytes (176 -> 128).
+			// Members are managed manually: the union holds a non-trivial alternative,
+			// so every reassignment destroys the outgoing side first.
+			struct ViewPayload {
+				string_view ref;
+				std::shared_ptr<StringArena> arena;
+			};
+			union Payload {
+				Payload() noexcept {}
+				~Payload() noexcept {}
+				string owned;
+				ViewPayload view;
+			};
+			mutable Payload payload;
+			mutable bool usingRef;   // true: payload.view is the active member
 
-		public:
-			StoredString() : ref(), usingRef(false) {}
-			StoredString(const char* value) : owned(value ? value : ""), ref(), usingRef(false) {}
-			StoredString(const string& value) : owned(value), ref(), usingRef(false) {}
-			StoredString(string&& value) : owned(std::move(value)), ref(), usingRef(false) {}
-
-			static StoredString fromView(std::shared_ptr<StringArena> owner, string_view value) {
-				StoredString s;
-				s.arena = std::move(owner);
-				s.ref = value;
-				s.usingRef = true;
-				return s;
+			void makeOwned() {
+				if (usingRef) {
+					payload.view.~ViewPayload();
+					usingRef = false;
+					new (static_cast<void*>(&payload)) string();
+				}
 			}
 
-			StoredString(const StoredString&) = default;
-			StoredString(StoredString&&) noexcept = default;
-			StoredString& operator=(const StoredString&) = default;
-			StoredString& operator=(StoredString&&) noexcept = default;
+		public:
+			StoredString() : payload(), usingRef(false) {
+				new (static_cast<void*>(&payload)) string();
+			}
+			StoredString(const char* value) : payload(), usingRef(false) {
+				new (static_cast<void*>(&payload)) string(value ? value : "");
+			}
+			StoredString(const string& value) : payload(), usingRef(false) {
+				new (static_cast<void*>(&payload)) string(value);
+			}
+			StoredString(string&& value) : payload(), usingRef(false) {
+				new (static_cast<void*>(&payload)) string(std::move(value));
+			}
+
+			struct ViewTag {};   // selects the borrowed-view payload directly
+			StoredString(ViewTag, string_view value, std::shared_ptr<StringArena>&& owner)
+				: payload(), usingRef(true) {
+				new (static_cast<void*>(&payload)) ViewPayload{ value, std::move(owner) };
+			}
+			static StoredString fromView(std::shared_ptr<StringArena> owner, string_view value) {
+				// A prvalue chains through copy elision: no move, no destructor round-trip.
+				return StoredString(ViewTag{}, value, std::move(owner));
+			}
+
+			StoredString(const StoredString& other) : payload(), usingRef(other.usingRef) {
+				if (usingRef)
+					new (static_cast<void*>(&payload)) ViewPayload(other.payload.view);
+				else
+					new (static_cast<void*>(&payload)) string(other.payload.owned);
+			}
+			StoredString(StoredString&& other) noexcept : payload(), usingRef(other.usingRef) {
+				if (usingRef) {
+					new (static_cast<void*>(&payload)) ViewPayload(std::move(other.payload.view));
+					other.usingRef = false;
+					new (static_cast<void*>(&other.payload)) string();
+				} else {
+					new (static_cast<void*>(&payload)) string(std::move(other.payload.owned));
+				}
+			}
+			StoredString& operator=(const StoredString& other) {
+				if (this == &other)
+					return *this;
+				if (usingRef && !other.usingRef) {
+					makeOwned();
+					payload.owned = other.payload.owned;
+				} else if (usingRef && other.usingRef) {
+					payload.view = other.payload.view;
+				} else if (!usingRef && other.usingRef) {
+					payload.owned.~basic_string();
+					usingRef = true;
+					new (static_cast<void*>(&payload)) ViewPayload(other.payload.view);
+				} else {
+					payload.owned = other.payload.owned;
+				}
+				return *this;
+			}
+			StoredString& operator=(StoredString&& other) noexcept {
+				if (this == &other)
+					return *this;
+				if (usingRef && !other.usingRef) {
+					makeOwned();
+					payload.owned = std::move(other.payload.owned);
+				} else if (usingRef && other.usingRef) {
+					payload.view = std::move(other.payload.view);
+				} else if (!usingRef && other.usingRef) {
+					payload.owned.~basic_string();
+					usingRef = true;
+					new (static_cast<void*>(&payload)) ViewPayload(std::move(other.payload.view));
+				} else {
+					payload.owned = std::move(other.payload.owned);
+				}
+				if (other.usingRef) {
+					other.usingRef = false;
+					new (static_cast<void*>(&other.payload)) string();
+				}
+				return *this;
+			}
+			~StoredString() {
+				if (usingRef)
+					payload.view.~ViewPayload();
+				else
+					payload.owned.~basic_string();
+			}
 
 			StoredString& operator=(const char* value) {
-				owned = value ? value : "";
-				ref = string_view();
-				arena.reset();
-				usingRef = false;
+				makeOwned();
+				payload.owned = value ? value : "";
 				return *this;
 			}
 
 			StoredString& operator=(const string& value) {
-				owned = value;
-				ref = string_view();
-				arena.reset();
-				usingRef = false;
+				makeOwned();
+				payload.owned = value;
 				return *this;
 			}
 
 			StoredString& operator=(string&& value) {
-				owned = std::move(value);
-				ref = string_view();
-				arena.reset();
-				usingRef = false;
+				makeOwned();
+				payload.owned = std::move(value);
 				return *this;
 			}
 
 			string_view view() const {
-				return usingRef ? ref : string_view(owned.data(), owned.size());
+				return usingRef ? payload.view.ref
+					: string_view(payload.owned.data(), payload.owned.size());
 			}
 
 			string str() const {
@@ -213,25 +296,33 @@ namespace ZJSON {
 
 			const string& strRef() const {
 				if (usingRef) {
-					if (ref.empty())
-						owned.clear();
-					else
-						owned.assign(ref.data(), ref.size());
+					// Keep the arena alive while copying: the borrowed bytes may live in it.
+					ViewPayload viewPayload = std::move(payload.view);
+					payload.view.~ViewPayload();
 					usingRef = false;
-					ref = string_view();
-					arena.reset();
+					new (static_cast<void*>(&payload)) string(viewPayload.ref.data(), viewPayload.ref.size());
 				}
-				return owned;
+				return payload.owned;
 			}
 
 			bool empty() const { return view().empty(); }
 			size_t size() const { return view().size(); }
 			size_t length() const { return view().size(); }
+
+			// True when this string borrows its bytes from a parsed document's arena
+			// (in which case borrowedArena() is always non-null).  Used by toString() to
+			// reserve against the source length instead of pre-walking the whole tree.
+			bool borrowed() const noexcept { return usingRef; }
+			const std::shared_ptr<StringArena>& borrowedArena() const noexcept { return payload.view.arena; }
+
 			void clear() {
-				owned.clear();
-				ref = string_view();
-				arena.reset();
-				usingRef = false;
+				if (usingRef) {
+					payload.view.~ViewPayload();
+					usingRef = false;
+					new (static_cast<void*>(&payload)) string();
+				} else {
+					payload.owned.clear();
+				}
 			}
 
 			friend bool operator==(const StoredString& lhs, const StoredString& rhs) { return lhs.view() == rhs.view(); }
@@ -1793,7 +1884,11 @@ namespace ZJSON {
 		// is finished with costs no copy.  There is deliberately no entry point that
 		// borrows a caller-owned char buffer: the parsed document may keep views into
 		// that buffer, and a borrowed view would dangle as soon as the caller reuses it.
-		static Json parse(std::string&& in, std::string& err, const ParseOptions& options = ParseOptions{})
+		// Shared body of the two parse() overloads: everything after the input has been
+		// attached to the arena.  `in` is only used for UTF-8 validation and the input
+		// size; the arena already owns (or has copied) the bytes by the time this runs.
+		template <typename Source>
+		static Json parseWithArena(Source&& in, std::string& err, const ParseOptions& options)
 		{
 			err.clear();
 			if (options.validateUtf8) {
@@ -1804,7 +1899,7 @@ namespace ZJSON {
 				}
 			}
 			const size_t inputSize = in.size();
-			auto arena = std::make_shared<detail::StringArena>(std::move(in));
+			auto arena = std::make_shared<detail::StringArena>(std::forward<Source>(in));
 			JsonParser parser{ *arena->source, 0, err, false, options.allowComments, options.duplicateKey, arena };
 			Json result = parser.parse_json_pda();
 			if (result.type == Type::Error)
@@ -1815,28 +1910,16 @@ namespace ZJSON {
 			return result;
 		}
 
+		static Json parse(std::string&& in, std::string& err, const ParseOptions& options = ParseOptions{})
+		{
+			return parseWithArena(std::move(in), err, options);
+		}
+
 		static Json parse(const std::string& in, std::string& err, const ParseOptions& options = ParseOptions{})
 		{
 			// The arena copies the input once; no temporary std::string is materialised in
 			// between (that would add a second full-size allocation for every parse).
-			err.clear();
-			if (options.validateUtf8) {
-				size_t errPos = 0;
-				if (!validate_utf8_bytes(in, errPos)) {
-					err = "invalid UTF-8 byte at position " + std::to_string(errPos);
-					return Json(Type::Error);
-				}
-			}
-			const size_t inputSize = in.size();
-			auto arena = std::make_shared<detail::StringArena>(in);
-			JsonParser parser{ *arena->source, 0, err, false, options.allowComments, options.duplicateKey, arena };
-			Json result = parser.parse_json_pda();
-			if (result.type == Type::Error)
-				return result;
-			parser.consume_garbage();
-			if (parser.i != inputSize)
-				return parser.fail("unexpected trailing " + esc(arena->source->at(parser.i)));
-			return result;
+			return parseWithArena(in, err, options);
 		}
 
 		static Json parse(const char* in, std::string& err, const ParseOptions& options = ParseOptions{}) {
@@ -2566,6 +2649,25 @@ namespace ZJSON {
 			return this->size() <= 0;
 		}
 
+		// Reserve hint for compact serialization without a full pre-walk of the tree:
+		// for a parsed document the output can never exceed the source length (every
+		// re-escaped string is no longer than its source span and whitespace is
+		// dropped), so the arena's source size plus a small margin for number
+		// formatting is enough.  Returns 0 when no arena can be found cheaply, in
+		// which case the caller falls back to estimateSerializedSize().
+		size_t compactReserveHint() const {
+			if (this->type != Type::Object && this->type != Type::Array)
+				return 0;
+			const Json* node = this->child;
+			for (int visited = 0; node && visited < 16; ++visited, node = node->brother) {
+				if (node->valueString.borrowed())
+					return node->valueString.borrowedArena()->source->size() + 64;
+				if (this->type == Type::Object && node->name.borrowed())
+					return node->name.borrowedArena()->source->size() + 64;
+			}
+			return 0;
+		}
+
 		[[nodiscard]] string toString() const {
 			if (this->type == Type::Error) {
 				return "";
@@ -2575,7 +2677,10 @@ namespace ZJSON {
 			}
 
 			string result;
-			result.reserve(estimateSerializedSize(this));
+			size_t hint = compactReserveHint();
+			if (hint == 0)
+				hint = estimateSerializedSize(this);
+			result.reserve(hint);
 			detail::StringSink sink(result);
 			writeCompact(this, sink);
 			return result;

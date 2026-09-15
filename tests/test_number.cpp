@@ -69,6 +69,11 @@ static_assert(sizeof(ZJSON::detail::NumberData) == sizeof(double),
 	"the three-state payload must reuse the 8-byte double slot");
 static_assert(sizeof(ZJSON::Json) == sizeof(JsonLayoutMirror),
 	"the NumberKind tag must fit in the padding after `type`, not grow the node");
+// Absolute lock (2026-09-15): R2 turned StoredString into a tagged union
+// (64 -> 40 bytes), so the node is now 128.  Pinning the number means an
+// accidental growth (the pool's slab block size follows it) breaks the build.
+static_assert(sizeof(ZJSON::Json) == 128,
+	"Json node size changed - the node pool slab block size changes with it");
 
 TEST(TestNumber, node_size_is_unchanged_by_the_third_state) {
 	// Same fact as the static_assert above, restated at run time so the failure is
