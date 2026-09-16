@@ -1,5 +1,10 @@
 #pragma once
+#if defined(_MSC_VER)
+// MSVC-only pragma (deprecated in favour of the /utf-8 compiler option, which
+// this project's CMakeLists.txt already sets).  GCC/Clang - the toolchains used
+// on ARM - reject unknown pragmas under -Wall, so guard it off everywhere else.
 #pragma execution_character_set("utf-8")
+#endif
 
 #include <string>
 #include <vector>
