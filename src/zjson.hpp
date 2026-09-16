@@ -6,6 +6,8 @@
 #include <iostream>
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <cassert>
 #include <cstring>
 #include <cmath>
 #include <fstream>
@@ -1186,10 +1188,10 @@ namespace ZJSON {
 		Json* brother;
 		Json* child;
 		Json* lastChild;   // tail of child list — O(1) append
-		// Lazy O(1) key lookup (Object only).  A flat open-addressing table rather than a
-		// map: it compares against the member's own name, so nothing is copied and no
-		// string_view can dangle.  See detail::JsonKeyIndex.
-		mutable detail::JsonKeyIndex<Json>* keymap;
+		// Lazy O(1) key lookup (Object only); see detail::JsonKeyIndex.  Built by const
+		// readers, so the pointer is atomic and CAS-published: racers share one fully
+		// built table, and no reader frees a table another is walking.
+		mutable std::atomic<detail::JsonKeyIndex<Json>*> keymap{ nullptr };
 		Type type;
 		// R5-1: which member of `valueNumber` is live.  Declared right after `type`
 		// on purpose - this byte lands in the padding that used to follow it, so the
@@ -1388,7 +1390,7 @@ namespace ZJSON {
 			this->lastChild = prev;
 			if (!this->child)
 				this->lastChild = nullptr;
-			if (this->keymap) { delete this->keymap; this->keymap = nullptr; }
+			invalidateKeymap();
 		}
 
 		// Detaches `node` from `container`'s child chain. `prev` is the node that
@@ -1402,10 +1404,7 @@ namespace ZJSON {
 			node->brother = nullptr;
 			if (container->lastChild == node)
 				container->lastChild = prev;   // nullptr when the chain is now empty
-			if (container->keymap) {
-				delete container->keymap;
-				container->keymap = nullptr;
-			}
+			container->invalidateKeymap();
 		}
 
 		static bool decodePointerToken(const string& token, string& decoded) {
@@ -1960,7 +1959,7 @@ namespace ZJSON {
 			this->brother = nullptr;
 			this->child = nullptr;
 			this->lastChild = nullptr;
-			this->keymap = nullptr;
+			this->keymap.store(nullptr, std::memory_order_relaxed);
 			this->type = type;
 		}
 
@@ -2043,7 +2042,34 @@ namespace ZJSON {
 				this->child = nullptr;
 			}
 			this->lastChild = nullptr;
-			if (this->keymap) { delete this->keymap; this->keymap = nullptr; }
+			invalidateKeymap();
+		}
+
+		// Writers invalidate; only legal when no reader is running (the tree itself
+		// is not concurrently writable).  Plain load+store, not exchange: this runs on
+		// the delete path of every node, so the common (already null) case must cost
+		// no more than the plain read it replaced.
+		void invalidateKeymap() noexcept {
+			detail::JsonKeyIndex<Json>* index = this->keymap.load(std::memory_order_relaxed);
+			if (index) {
+				this->keymap.store(nullptr, std::memory_order_relaxed);
+				delete index;
+			}
+		}
+
+		// Builds and CAS-publishes the index; returns the current one (ours or the
+		// winner's).  Empty keys are indexed, duplicate keys keep the LAST member.
+		detail::JsonKeyIndex<Json>* publishKeymap() const {
+			std::unique_ptr<detail::JsonKeyIndex<Json>> fresh(new detail::JsonKeyIndex<Json>());
+			fresh->reserve(childCount());
+			for (Json* cur = this->child; cur; cur = cur->brother)
+				fresh->assign(cur->name.view(), cur);
+
+			detail::JsonKeyIndex<Json>* expected = nullptr;
+			if (this->keymap.compare_exchange_strong(expected, fresh.get(),
+				std::memory_order_acq_rel, std::memory_order_acquire))
+				return fresh.release();
+			return expected;
 		}
 
 	public:
@@ -2069,7 +2095,7 @@ namespace ZJSON {
 			this->brother = nullptr;
 			this->child = nullptr;
 			this->lastChild = nullptr;
-			this->keymap = nullptr;
+			this->keymap.store(nullptr, std::memory_order_relaxed);
 			this->type = (Type)type;
 		}
 
@@ -2081,7 +2107,7 @@ namespace ZJSON {
 			this->brother = nullptr;
 			this->child = nullptr;
 			this->lastChild = nullptr;
-			this->keymap = nullptr;
+			this->keymap.store(nullptr, std::memory_order_relaxed);
 			if constexpr (std::is_signed<T>::value)
 				this->setNumberInt64(static_cast<int64_t>(value));
 			else
@@ -2095,7 +2121,7 @@ namespace ZJSON {
 
 		Json(const float& value) {
 			this->lastChild = nullptr;
-			this->keymap = nullptr;
+			this->keymap.store(nullptr, std::memory_order_relaxed);
 			if (std::isnan(value)) {
 				this->brother = nullptr;
 				this->child = nullptr;
@@ -2111,7 +2137,7 @@ namespace ZJSON {
 
 		Json(const double& value) {
 			this->lastChild = nullptr;
-			this->keymap = nullptr;
+			this->keymap.store(nullptr, std::memory_order_relaxed);
 			if (std::isnan(value)) {
 				this->brother = nullptr;
 				this->child = nullptr;
@@ -2153,7 +2179,7 @@ namespace ZJSON {
 			this->brother = nullptr;
 			this->child = nullptr;
 			this->lastChild = nullptr;
-			this->keymap = nullptr;
+			this->keymap.store(nullptr, std::memory_order_relaxed);
 			this->type = value ? Type::True : Type::False;
 		}
 
@@ -2161,14 +2187,14 @@ namespace ZJSON {
 			this->brother = nullptr;
 			this->child = nullptr;
 			this->lastChild = nullptr;
-			this->keymap = nullptr;
+			this->keymap.store(nullptr, std::memory_order_relaxed);
 			this->type = Type::Null;
 		}
 
 		Json(const Json& origin) {
 			this->brother = nullptr;
 			this->lastChild = nullptr;
-			this->keymap = nullptr;
+			this->keymap.store(nullptr, std::memory_order_relaxed);
 			this->type = origin.type;
 			this->name = origin.name;
 			this->valueString = origin.valueString;
@@ -2186,7 +2212,7 @@ namespace ZJSON {
 			// the source chain into whatever container the node is linked into next.
 			this->brother = nullptr;
 			this->lastChild = rhs.lastChild;
-			this->keymap = rhs.keymap;
+			this->keymap.store(rhs.keymap.load(std::memory_order_relaxed), std::memory_order_relaxed);
 			this->name = std::move(rhs.name);
 			this->valueString = std::move(rhs.valueString);
 			this->numberKind = rhs.numberKind;
@@ -2194,14 +2220,14 @@ namespace ZJSON {
 			rhs.child = nullptr;
 			rhs.brother = nullptr;
 			rhs.lastChild = nullptr;
-			rhs.keymap = nullptr;
+			rhs.keymap.store(nullptr, std::memory_order_relaxed);
 		}
 
 		explicit Json(std::initializer_list<std::pair<const std::string, Json>> values) {
 			this->child = nullptr;
 			this->brother = nullptr;
 			this->lastChild = nullptr;
-			this->keymap = nullptr;
+			this->keymap.store(nullptr, std::memory_order_relaxed);
 			this->type = Type::Object;
 			for (auto al : values) {
 				al.second.name = al.first;
@@ -2346,7 +2372,7 @@ namespace ZJSON {
 				this->child = rhs.child;
 				this->brother = savedBrother;
 				this->lastChild = rhs.lastChild;
-				this->keymap = rhs.keymap;
+				this->keymap.store(rhs.keymap.load(std::memory_order_relaxed), std::memory_order_relaxed);
 				this->name = std::move(savedName);
 				this->valueString = std::move(rhs.valueString);
 				this->numberKind = rhs.numberKind;
@@ -2354,7 +2380,7 @@ namespace ZJSON {
 				rhs.child = nullptr;
 				rhs.brother = nullptr;
 				rhs.lastChild = nullptr;
-				rhs.keymap = nullptr;
+				rhs.keymap.store(nullptr, std::memory_order_relaxed);
 				return(*this);
 			}
 			releaseChildren();
@@ -2362,7 +2388,7 @@ namespace ZJSON {
 			this->child = rhs.child;
 			this->brother = savedBrother;
 			this->lastChild = rhs.lastChild;
-			this->keymap = rhs.keymap;
+			this->keymap.store(rhs.keymap.load(std::memory_order_relaxed), std::memory_order_relaxed);
 			this->name = std::move(rhs.name);
 			this->valueString = std::move(rhs.valueString);
 			this->numberKind = rhs.numberKind;
@@ -2370,7 +2396,7 @@ namespace ZJSON {
 			rhs.child = nullptr;
 			rhs.brother = nullptr;
 			rhs.lastChild = nullptr;
-			rhs.keymap = nullptr;
+			rhs.keymap.store(nullptr, std::memory_order_relaxed);
 			return(*this);
 		}
 
@@ -2388,19 +2414,17 @@ namespace ZJSON {
 				return rs;
 		}
 
-		// Direct member lookup through the lazy key index; nullptr when absent.
-		//
-		// The index compares each candidate node's own name against the requested key, so
-		// no key is copied and nothing can dangle - a `string&` and a `string_view` caller
-		// take exactly the same path.  (This used to be an unordered_map<string, Json*>,
-		// which in C++17 has no heterogeneous lookup: a string_view caller had to build a
-		// temporary string, and every indexed key was copied.  Measured 10x slower.)
+		// Direct member lookup through the lazy key index; nullptr when absent.  The
+		// index compares each candidate's own name, so no key is copied and nothing
+		// can dangle (a string& and a string_view caller take the same path).
 		const Json* directMemberPtr(string_view key) const {
 			if (this->type != Type::Object || !this->child)
 				return nullptr;
-			if (!this->keymap)
-				buildKeymap();
-			return this->keymap->find(key);
+			// Miss on a never-indexed object: publish, then use whichever table won.
+			detail::JsonKeyIndex<Json>* index = this->keymap.load(std::memory_order_acquire);
+			if (!index)
+				index = publishKeymap();
+			return index->find(key);
 		}
 
 		const Json* directMemberPtr(const string& key) const {
@@ -2454,9 +2478,7 @@ namespace ZJSON {
 		}
 
 		bool contains(const string& key) const {
-			if (this->type != Type::Object || !this->child) return false;
-			if (!this->keymap) buildKeymap();
-			return this->keymap->find(key) != nullptr;
+			return this->directMemberPtr(key) != nullptr;
 		}
 
 		string getValueType() const {
@@ -3468,7 +3490,7 @@ namespace ZJSON {
 					deleteJson(this->child);
 				this->child = nullptr;
 				this->lastChild = nullptr;
-				if (this->keymap) { delete this->keymap; this->keymap = nullptr; }
+				invalidateKeymap();
 			}
 			return (*this);
 		}
@@ -3662,11 +3684,13 @@ namespace ZJSON {
 				self->lastChild = node;
 			}
 
-			// Keep the lazy key index in step with the chain. Appending used to drop the
-			// whole index, which made add/lookup interleaving quadratic; a single insert
-			// has the same meaning as rebuilding it (later duplicates win) and is O(1).
-			if (self->keymap && self->type == Type::Object)
-				self->keymap->assign(node->name.view(), node);
+			// Keep the lazy key index in step with the chain (same meaning as a rebuild:
+			// later duplicates win).  Relaxed load: writer-side only.
+			if (self->type == Type::Object) {
+				detail::JsonKeyIndex<Json>* index = self->keymap.load(std::memory_order_relaxed);
+				if (index)
+					index->assign(node->name.view(), node);
+			}
 		}
 
 		// Releases a node and its whole subtree. The block each node came from returns to
@@ -3698,26 +3722,10 @@ namespace ZJSON {
 				if ((cur->type == Type::Object || cur->type == Type::Array) && cur->child)
 					stack.push_back({ cur->child });
 
-				if (cur->keymap) { delete cur->keymap; cur->keymap = nullptr; }
+				cur->invalidateKeymap();
 				cur->child = nullptr;
 				cur->brother = nullptr;
 				delete cur;
-			}
-		}
-
-		// Lazily build a key index of all immediate children (Object keys only).
-		// Empty keys are indexed too: {"":1} is a legal document and must be
-		// reachable through operator[]/contains as well as through at("/").
-		// A duplicate key keeps the LAST member, which is what the map's operator[]
-		// did as it walked the chain in order.
-		void buildKeymap() const {
-			if (keymap) { delete keymap; keymap = nullptr; }
-			keymap = new detail::JsonKeyIndex<Json>();
-			keymap->reserve(childCount());
-			Json* cur = child;
-			while (cur) {
-				keymap->assign(cur->name.view(), cur);
-				cur = cur->brother;
 			}
 		}
 
@@ -4110,6 +4118,32 @@ namespace ZJSON {
 				return detail::StoredString::fromView(arena, arena->store(std::move(decoded)));
 			}
 
+			// Object-member NAME: always OWNED, not a view.  key() returns const string&,
+			// so a borrowed name would have to be rewritten in place - a data race when
+			// one document is read concurrently.  String values still borrow.
+			detail::StoredString parse_stored_key() {
+				size_t start = i;
+				for (size_t pos = i; pos < str.size(); ++pos) {
+					const char ch = str[pos];
+					if (ch == '"') {
+						i = pos + 1;
+						return detail::StoredString(string(str.data() + start, pos - start));
+					}
+					if (ch == '\\' || in_range(ch, 0, 0x1f)) {
+						i = start;
+						string decoded = parse_string();
+						if (failed)
+							return detail::StoredString();
+						return detail::StoredString(std::move(decoded));
+					}
+				}
+				i = start;
+				string decoded = parse_string();
+				if (failed)
+					return detail::StoredString();
+				return detail::StoredString(std::move(decoded));
+			}
+
 			// --------------- Explicit-stack PDA parser ---------------
 			// Replaces the former recursive-descent parse_json(depth).
 			// Uses a heap-allocated stack instead of the call stack,
@@ -4339,7 +4373,7 @@ namespace ZJSON {
 						if (ch != '"')
 							return fail("expected '\"' in object, got " + esc(ch));
 						i++;
-						stk.back().key = parse_stored_string();
+						stk.back().key = parse_stored_key();
 						if (failed) return Json(Type::Error);
 						state = PState::OBJ_COLON;
 						break;
@@ -4349,7 +4383,7 @@ namespace ZJSON {
 						if (ch != '"')
 							return fail("expected '\"' in object, got " + esc(ch));
 						i++;
-						stk.back().key = parse_stored_string();
+						stk.back().key = parse_stored_key();
 						if (failed) return Json(Type::Error);
 						state = PState::OBJ_COLON;
 						break;
@@ -4407,6 +4441,9 @@ namespace ZJSON {
 			valuePtr = ptr;
 		}
 		const string& key() const {
+			// Names are owned, so this is a pure read (assert guards the invariant).
+			assert((keyPtr == nullptr || !keyPtr->borrowed()) &&
+				"object member names must be owned: key() is a const read path");
 			return keyPtr->strRef();
 		}
 		Json& value() const {
@@ -4424,6 +4461,9 @@ namespace ZJSON {
 			valuePtr = ptr;
 		}
 		const string& key() const {
+			// Names are owned, so this is a pure read (assert guards the invariant).
+			assert((keyPtr == nullptr || !keyPtr->borrowed()) &&
+				"object member names must be owned: key() is a const read path");
 			return keyPtr->strRef();
 		}
 		const Json& value() const {

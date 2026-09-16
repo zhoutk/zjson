@@ -164,7 +164,7 @@ Semantics worth knowing
 ## Thread safety and memory
 
 1. **Node allocation and deallocation are thread safe.** Every thread owns a slab pool that is never released, so a node allocated on one thread may be freed on another (or after the allocating thread has exited). No locking is involved.
-2. **A single document is not safe for concurrent readers and writers.** The lazy key index and lazy string materialisation mutate `mutable` state, so share a document across threads only while nobody is modifying it (prefer handing out copies or moving ownership).
+2. **A document that is only read is safe to share for concurrent reads.** The lazy key index is published with an atomic compare-exchange by the const read paths (racing threads share one fully built table), and member names are owned at parse time, so `operator[]`/`contains`/`findPtr`/`at` and iteration (including `entry.key()`) are pure reads: no allocation, no throw. **Concurrent reads and writes of one document are still not safe** (same as `std::string`); hand out copies or move ownership instead.
 3. **Pool residency is per thread and unbounded by design.** Each thread keeps the slabs it ever used (measured: 64 short-lived threads that each parsed a 40k-node document leave about 440 MB resident for the process lifetime). Reuse worker threads; do not create one thread per request if documents can be large.
 4. **Cross-module ownership is not guaranteed.** The header inlines into every module, so a document passed across DLL boundaries and destroyed after the owning module is unloaded is unsafe.
 5. Deep documents are safe to copy/print/compare/destroy (iterative traversals), but the parser still refuses nesting beyond 101 levels.

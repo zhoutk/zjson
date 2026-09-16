@@ -1,22 +1,16 @@
 // =============================================================================
 //  ZJSON :: exception-safety suite (fault injection via global operator new)
 //
-//  R2 turned StoredString into a tagged union, which moved the tag flip in
-//  strRef() before the possibly-throwing materialization.  That regression
-//  (found 2026-09-15 by fault injection) left the object in a "tag says owned
-//  but no string was constructed" state after std::bad_alloc - undefined
-//  behaviour on the next destructor call, and a bogus string on the next read.
+//  What is locked down here changed on 2026-09-16.  Object member names used to
+//  be borrowed views that JsonEntry::key() materialized lazily - the one const
+//  read that could throw, and the one that made concurrent const reads a data
+//  race.  Names are owned at parse time now, so key() allocates nothing and
+//  cannot throw.  These tests pin that contract: arming a fail-on-Nth-allocation
+//  counter and calling key() must leave the counter armed.
 //
-//  The fix materializes into a local std::string first (the only throwing
-//  step), then flips the tag and moves the local in (noexcept).  These tests
-//  arm a fail-on-Nth-allocation counter right before the call and verify that
-//  a failed materialization leaves the document exactly as it was: still
-//  borrowing, still readable, still serializable, still destructible.
-//
-//  The injection works by replacing the global operator new/delete family with
-//  malloc/free plus a countdown.  This is only valid because this translation
-//  unit is its own test binary: nothing here depends on allocations made
-//  between arming the counter and the call under test.
+//  The injection replaces the global operator new/delete family with
+//  malloc/free plus a countdown, which is only valid because this translation
+//  unit is its own test binary.
 // =============================================================================
 #include "gtest/gtest.h"
 #include "../src/zjson.hpp"
@@ -60,8 +54,8 @@ void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 
 namespace {
 
-// A key longer than any SSO buffer (15 chars on libc++/libstdc++), so that
-// materializing it into a std::string performs exactly one allocation.
+// Longer than any SSO buffer, so materializing it into a std::string would be
+// exactly one allocation - i.e. any regression in key() shows up immediately.
 std::string longKey() {
 	return std::string(80, 'K');
 }
@@ -72,36 +66,8 @@ std::string sourceWithLongKey() {
 
 }  // namespace
 
-// A failed materialization must leave the entry borrowing: the very next
-// key() succeeds and returns the original bytes, and the document stays whole.
-TEST(ExceptionSafety, FailedKeyMaterializationLeavesObjectConsistent) {
-	std::string err;
-	Json doc = Json::ParseJson(sourceWithLongKey(), err);
-	ASSERT_FALSE(doc.isError()) << err;
-	const Json& cdoc = doc;  // const iteration -> JsonConstEntry::key() -> strRef()
-
-	std::string before = cdoc.toString();
-
-	auto it = cdoc.begin();
-	ASSERT_TRUE(it != cdoc.end());
-	const std::string expectedKey = longKey();
-
-	g_allocFailCountdown = 1;  // the very next allocation fails
-	EXPECT_THROW(it->key(), std::bad_alloc);
-	ASSERT_EQ(g_allocFailCountdown, -1) << "counter did not self-disarm";
-
-	// The object survived: same key comes back, intact and retryable.
-	EXPECT_EQ(it->key(), expectedKey);
-	// Second retry is stable too (the first retry materialized for real).
-	EXPECT_EQ(it->key(), expectedKey);
-	// The rest of the document is untouched and serializes identically.
-	EXPECT_EQ(cdoc.toString(), before);
-}
-
-// Two consecutive failures must not corrupt anything either: after each
-// failed attempt the object is still borrowing, and the final successful
-// attempt yields the original content.
-TEST(ExceptionSafety, RepeatedFailedMaterializationsThenSuccess) {
+// key() is a pure read: no allocation, therefore no throw, therefore no race.
+TEST(ExceptionSafety, KeyReadOnParsedDocumentAllocatesNothing) {
 	std::string err;
 	Json doc = Json::ParseJson(sourceWithLongKey(), err);
 	ASSERT_FALSE(doc.isError()) << err;
@@ -110,35 +76,58 @@ TEST(ExceptionSafety, RepeatedFailedMaterializationsThenSuccess) {
 	auto it = cdoc.begin();
 	ASSERT_TRUE(it != cdoc.end());
 	const std::string expectedKey = longKey();
+
+	g_allocFailCountdown = 1;
+	EXPECT_NO_THROW(it->key());
+	EXPECT_EQ(g_allocFailCountdown, 1) << "key() allocated - it is no longer a pure read";
+	EXPECT_EQ(it->key(), expectedKey);
+
+	// Harness is live: the next real allocation does fail.
+	EXPECT_THROW(std::string(80, 'x'), std::bad_alloc);
+	ASSERT_EQ(g_allocFailCountdown, -1);
+	// And the document is untouched by all of the above.
+	EXPECT_EQ(it->key(), expectedKey);
+}
+
+// Repeated reads, several keys, counter armed every time.
+TEST(ExceptionSafety, RepeatedKeyReadsStayAllocationFree) {
+	std::string err;
+	Json doc = Json::ParseJson(sourceWithLongKey(), err);
+	ASSERT_FALSE(doc.isError()) << err;
+	const Json& cdoc = doc;
+	const std::string expectedKey = longKey();   // computed before arming the counter
+	std::string before = cdoc.toString();
 
 	for (int attempt = 0; attempt < 3; ++attempt) {
 		g_allocFailCountdown = 1;
-		EXPECT_THROW(it->key(), std::bad_alloc);
+		auto it = cdoc.begin();
+		EXPECT_NO_THROW(it->key());
+		EXPECT_EQ(g_allocFailCountdown, 1);
+		EXPECT_EQ(it->key(), expectedKey);
 	}
-	EXPECT_EQ(it->key(), expectedKey);
+
+	// Counter disarmed: the whole document still reads and serializes the same.
+	g_allocFailCountdown = -1;
+	EXPECT_EQ(cdoc.begin()->key(), expectedKey);
+	EXPECT_EQ(cdoc.toString(), before);
 }
 
-// The failure must be confined to the one key: the other members keep working
-// and materializing their keys succeeds normally afterwards.
-TEST(ExceptionSafety, FailureDoesNotPoisonOtherEntries) {
+// A deep copy reads the same way - the copy owns its names too.
+TEST(ExceptionSafety, CopiedDocumentKeysAreAlsoPureReads) {
 	std::string err;
 	Json doc = Json::ParseJson(sourceWithLongKey(), err);
 	ASSERT_FALSE(doc.isError()) << err;
-	const Json& cdoc = doc;
+	Json copy = doc;
+	const Json& ccopy = copy;
 
-	auto it = cdoc.begin();
-	ASSERT_TRUE(it != cdoc.end());
-	++it;  // -> "other"
-	ASSERT_TRUE(it != cdoc.end());
+	auto it = ccopy.begin();
+	ASSERT_TRUE(it != ccopy.end());
+	const std::string expectedKey = longKey();
 
 	g_allocFailCountdown = 1;
-	EXPECT_THROW((void)cdoc.begin()->key(), std::bad_alloc);
-
-	// "other" was never involved in the failure and materializes fine.
-	EXPECT_EQ(it->key(), "other");
-	// toString() on a String node returns the raw, unquoted value.
-	EXPECT_EQ(it->value().toString(), "payload");
-	// And the failed long key still materializes correctly afterwards.
-	EXPECT_EQ(cdoc.begin()->key(), longKey());
-	EXPECT_EQ(cdoc.toString(), Json::ParseJson(sourceWithLongKey(), err).toString());
+	EXPECT_NO_THROW(it->key());
+	EXPECT_EQ(g_allocFailCountdown, 1);
+	EXPECT_EQ(it->key(), expectedKey);
+	EXPECT_EQ((++it)->key(), "other");
+	g_allocFailCountdown = -1;   // disarm before the test tears down
 }
