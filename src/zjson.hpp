@@ -386,7 +386,7 @@ namespace ZJSON {
 				Node* node;
 			};
 
-			std::unique_ptr<Slot[]> slots;
+			std::unique_ptr<Slot[]> slotTable;
 			size_t capacity = 0;
 			size_t count = 0;
 
@@ -412,9 +412,9 @@ namespace ZJSON {
 					return nullptr;
 				const size_t mask = capacity - 1;
 				size_t position = hash & mask;
-				while (slots[position].node) {
-					if (slots[position].hash == hash && slots[position].node->name.view() == key)
-						return &slots[position];
+				while (slotTable[position].node) {
+					if (slotTable[position].hash == hash && slotTable[position].node->name.view() == key)
+						return &slotTable[position];
 					position = (position + 1) & mask;
 				}
 				return nullptr;
@@ -425,10 +425,10 @@ namespace ZJSON {
 			void insertNew(size_t hash, Node* node) noexcept {
 				const size_t mask = capacity - 1;
 				size_t position = hash & mask;
-				while (slots[position].node)
+				while (slotTable[position].node)
 					position = (position + 1) & mask;
-				slots[position].hash = hash;
-				slots[position].node = node;
+				slotTable[position].hash = hash;
+				slotTable[position].node = node;
 				++count;
 			}
 
@@ -436,7 +436,7 @@ namespace ZJSON {
 				std::unique_ptr<Slot[]> fresh(new Slot[wantedCapacity]);
 				for (size_t index = 0; index < wantedCapacity; ++index)
 					fresh[index].node = nullptr;
-				slots = std::move(fresh);
+				slotTable = std::move(fresh);
 				capacity = wantedCapacity;
 				count = 0;
 			}
@@ -449,7 +449,7 @@ namespace ZJSON {
 					wantedCapacity <<= 1;
 				if (capacity == wantedCapacity)
 					return;
-				std::unique_ptr<Slot[]> old = std::move(slots);
+				std::unique_ptr<Slot[]> old = std::move(slotTable);
 				const size_t oldCapacity = capacity;
 				allocate(wantedCapacity);
 				for (size_t index = 0; index < oldCapacity; ++index)
@@ -458,7 +458,7 @@ namespace ZJSON {
 			}
 
 			void grow() {
-				std::unique_ptr<Slot[]> old = std::move(slots);
+				std::unique_ptr<Slot[]> old = std::move(slotTable);
 				const size_t oldCapacity = capacity;
 				allocate(capacity == 0 ? 8 : capacity * 2);
 				for (size_t index = 0; index < oldCapacity; ++index)

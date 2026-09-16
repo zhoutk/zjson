@@ -243,6 +243,16 @@ if (CMAKE_ZJSON_ENABLE_TEST)
     target_link_libraries(test_exception_safety gtest gtest_main)
     add_test(NAME test_exception_safety COMMAND test_exception_safety)
 
+    # Qt keyword-macro compatibility: Qt defines slots/signals/emit/foreach as
+    # macros expanding to nothing, so any header using one of those as an
+    # identifier breaks inside a Qt translation unit.  The test defines them
+    # before including the library (see the file header for the regression that
+    # motivated it).
+    add_executable(test_qt_macro_compat tests/test_qt_macro_compat.cpp)
+    zjson_set_output_dir(test_qt_macro_compat)
+    target_link_libraries(test_qt_macro_compat gtest gtest_main)
+    add_test(NAME test_qt_macro_compat COMMAND test_qt_macro_compat)
+
     # The node pool is intentionally process-lifetime, so LeakSanitizer must be told
     # to ignore it. src/zjson.hpp does that at runtime (__lsan_ignore_object) and
     # tests/lsan.supp is the fallback for toolchains where that path is not compiled.
