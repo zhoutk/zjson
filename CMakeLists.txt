@@ -220,6 +220,30 @@ if (CMAKE_ZJSON_ENABLE_TEST)
     target_link_libraries(test_number gtest gtest_main)
     add_test(NAME test_number COMMAND test_number)
 
+    # Exception safety: replaces the global operator new family to inject
+    # std::bad_alloc at a chosen allocation and verifies that a failed
+    # StoredString materialization leaves the document consistent (found and
+    # fixed 2026-09-15, see docs/出厂报告-2026-09-15.md).
+    #
+    # The injection must SEE the materialization allocation, i.e. the string
+    # constructor inside strRef() must be inlined into this test's translation
+    # unit.  With libc++ shipped as a DLL, the extern-template instantiation of
+    # std::string lives in the DLL: at -O0 its allocations bypass the
+    # executable's operator new override and the injection goes blind exactly
+    # where it must fire.  At -O1 and above the constructor is inlined into the
+    # TU and the override sees every allocation, so this target pins -O2
+    # regardless of the build type (verified 2026-09-15: -O0 blind, -O1/-O2/-O3
+    # injectable).
+    add_executable(test_exception_safety tests/test_exception_safety.cpp)
+    zjson_set_output_dir(test_exception_safety)
+    if(MSVC)
+        target_compile_options(test_exception_safety PRIVATE /O2)
+    else()
+        target_compile_options(test_exception_safety PRIVATE -O2)
+    endif()
+    target_link_libraries(test_exception_safety gtest gtest_main)
+    add_test(NAME test_exception_safety COMMAND test_exception_safety)
+
     # The node pool is intentionally process-lifetime, so LeakSanitizer must be told
     # to ignore it. src/zjson.hpp does that at runtime (__lsan_ignore_object) and
     # tests/lsan.supp is the fallback for toolchains where that path is not compiled.

@@ -213,8 +213,13 @@ namespace ZJSON {
 			StoredString(StoredString&& other) noexcept : payload(), usingRef(other.usingRef) {
 				if (usingRef) {
 					new (static_cast<void*>(&payload)) ViewPayload(std::move(other.payload.view));
-					other.usingRef = false;
-					new (static_cast<void*>(&other.payload)) string();
+					// Leave the source as an EMPTY borrowed view rather than rebuilding an
+					// owned empty std::string.  The arena was moved out (so it is null) and
+					// only the ref has to be dropped; the ViewPayload stays alive and its
+					// destructor is already correct.  Rebuilding a string here cost a
+					// destructor + placement-new + destructor for every parsed string
+					// (measured ~4% of wide-document parse).
+					other.payload.view.ref = string_view();
 				} else {
 					new (static_cast<void*>(&payload)) string(std::move(other.payload.owned));
 				}
@@ -252,8 +257,9 @@ namespace ZJSON {
 					payload.owned = std::move(other.payload.owned);
 				}
 				if (other.usingRef) {
-					other.usingRef = false;
-					new (static_cast<void*>(&other.payload)) string();
+					// See the move constructor: keep the source in the (already empty)
+					// borrowed-view state instead of reconstructing an owned string.
+					other.payload.view.ref = string_view();
 				}
 				return *this;
 			}
@@ -298,9 +304,15 @@ namespace ZJSON {
 				if (usingRef) {
 					// Keep the arena alive while copying: the borrowed bytes may live in it.
 					ViewPayload viewPayload = std::move(payload.view);
+					// Materialize into a local first: this is the only step that can throw
+					// (std::bad_alloc) and it leaves this object completely untouched.  The
+					// tag flip below happens only after success, and the string move
+					// constructor is noexcept - so a failed materialization leaves this
+					// object exactly as it was: still borrowing, still consistent, retryable.
+					string materialized(viewPayload.ref.data(), viewPayload.ref.size());
 					payload.view.~ViewPayload();
 					usingRef = false;
-					new (static_cast<void*>(&payload)) string(viewPayload.ref.data(), viewPayload.ref.size());
+					new (static_cast<void*>(&payload)) string(std::move(materialized));
 				}
 				return payload.owned;
 			}
@@ -309,11 +321,18 @@ namespace ZJSON {
 			size_t size() const { return view().size(); }
 			size_t length() const { return view().size(); }
 
-			// True when this string borrows its bytes from a parsed document's arena
-			// (in which case borrowedArena() is always non-null).  Used by toString() to
-			// reserve against the source length instead of pre-walking the whole tree.
-			bool borrowed() const noexcept { return usingRef; }
-			const std::shared_ptr<StringArena>& borrowedArena() const noexcept { return payload.view.arena; }
+			// True when this string borrows its bytes from a parsed document's arena.
+			// A moved-from string stays in the borrowed tag with a null arena, so the
+			// arena check is part of the predicate, not an optional refinement
+			// (borrowedArena() is non-null exactly when this is true).  Used by
+			// toString() to reserve against the source length instead of pre-walking
+			// the whole tree.
+			bool borrowed() const noexcept { return usingRef && payload.view.arena != nullptr; }
+			std::shared_ptr<StringArena> borrowedArena() const noexcept {
+				// Returned by value and null outside the borrowed state, so the interface
+				// has no trap shape: reading a non-active union member cannot escape.
+				return usingRef ? payload.view.arena : nullptr;
+			}
 
 			void clear() {
 				if (usingRef) {
@@ -2649,25 +2668,45 @@ namespace ZJSON {
 			return this->size() <= 0;
 		}
 
+	private:
+		// Source-length bound for the compactReserveHint() O(1) fast path.  The hint
+		// is the WHOLE source document's length, so a short string grafted from a
+		// huge document (parse a large config, copy one member out, serialize the
+		// copy) would otherwise reserve megabytes for a tiny output.  Below the
+		// bound the O(1) hint is used; above it compactReserveHint() returns 0 and
+		// the caller falls back to the exact estimateSerializedSize() pre-walk -
+		// for documents this large that walk is amortized (measured 2026-09-15:
+		// the exact walk on a 16.6 MB output is ~1.3% FASTER than reserving).
+		static constexpr size_t maxReserveHint = 4u << 20;
+
 		// Reserve hint for compact serialization without a full pre-walk of the tree:
-		// for a parsed document the output can never exceed the source length (every
-		// re-escaped string is no longer than its source span and whitespace is
-		// dropped), so the arena's source size plus a small margin for number
-		// formatting is enough.  Returns 0 when no arena can be found cheaply, in
-		// which case the caller falls back to estimateSerializedSize().
+		// for a parsed document the arena's source length stands in for the output
+		// size.  Strings never serialize longer than their source span (re-escaping
+		// cannot exceed the original escape, whitespace is dropped), but numbers can:
+		// an exponential literal may come out as its longer shortest-round-trip form
+		// ("1e15" -> "1000000000000000").  That growth is bounded per number but is
+		// deliberately NOT accumulated here, so a number-dense document may
+		// under-reserve - which only costs a string growth, never correctness.
+		// Returns 0 when no arena can be found cheaply or when the source length
+		// exceeds maxReserveHint, in which case the caller falls back to
+		// estimateSerializedSize().
 		size_t compactReserveHint() const {
 			if (this->type != Type::Object && this->type != Type::Array)
 				return 0;
 			const Json* node = this->child;
 			for (int visited = 0; node && visited < 16; ++visited, node = node->brother) {
+				size_t source = 0;
 				if (node->valueString.borrowed())
-					return node->valueString.borrowedArena()->source->size() + 64;
-				if (this->type == Type::Object && node->name.borrowed())
-					return node->name.borrowedArena()->source->size() + 64;
+					source = node->valueString.borrowedArena()->source->size() + 64;
+				else if (this->type == Type::Object && node->name.borrowed())
+					source = node->name.borrowedArena()->source->size() + 64;
+				if (source != 0)
+					return source > maxReserveHint ? 0 : source;
 			}
 			return 0;
 		}
 
+	public:
 		[[nodiscard]] string toString() const {
 			if (this->type == Type::Error) {
 				return "";
