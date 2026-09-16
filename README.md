@@ -158,16 +158,35 @@ Semantics worth knowing
 - The deep-search fallback used when a key is not a direct member returns the **first match in document order** (pre-order).
 - Parsing limits nesting to **101 levels**; `cloneChain`/`deleteJson`/pretty printing/comparison are iterative, so a 20000-level document built through the API can be copied, printed, compared and destroyed safely.
 - Equality treats members as a **multiset**: duplicate keys must match in multiplicity and value pairing (parsing itself collapses duplicates; the default policy keeps the last one).
+- **`key()` returns `std::string_view` (breaking change since 2026-09-16)**: `entry.key()`, `it.key()` and `it->key()` no longer return `const string&`. `std::string`'s converting constructor from a `string_view` is **explicit**, so **only copy-initialization contexts** stop compiling - `=` at a declaration, a by-value argument, a `return` into `std::string`, `push_back`:
+
+  | Form | Result |
+  |---|---|
+  | `std::string k = e.key();` (copy-init) | ❌ does not compile |
+  | `take(e.key())` (by-value parameter) = `return e.key();` = `v.push_back(e.key())` | ❌ does not compile |
+  | `std::string k(e.key());` (direct-init) | ✅ |
+  | `std::string k; k = e.key();` (assignment, not initialization) | ✅ |
+  | `s += e.key();` / `s.append(e.key());` / `v.emplace_back(e.key())` | ✅ |
+  | comparison, `.empty()`/`.size()`, structured bindings, using the `string_view` directly | ✅ |
+
+  Note that `std::string k = e.key();` (a declaration - fails) and `k = e.key();` (an assignment - works) behave differently. Migration: add parentheses, `std::string(e.key())`, or use the `string_view` as-is.
+- The view returned by `key()`/`it.key()` is valid while the document is alive and the member is not renamed (it points into the parse arena for long keys); copy it into a `std::string` while it is still valid when it must outlive that.
+- Object **names** are owned when they fit `std::string`'s inline buffer and borrow the parse arena when they are longer (so nothing allocates per key, and no read path ever rewrites a node); string **values** always borrow the arena.
 - Structured bindings work through the ADL `get` + `std::tuple_size`/`std::tuple_element`; `std::get<N>(entry)` is intentionally not provided (adding overloads to `namespace std` for our own types would be undefined behaviour).
 - A JSON **integer literal** (no fraction, no exponent) is stored exactly as `int64`/`uint64` and written back verbatim, so `{"id":9007199254740993}` round-trips; `42.0`, `42e0` and `-0` stay `double` (`isIntegral()` tells them apart). The third numeric state costs no memory - the kind tag lives in the padding that already followed `type`.
 - Performance, and the comparison against nlohmann/json, RapidJSON and simdjson (throughput, node-pool cost, access-path cost, stringify hotspots): see [`docs/性能测试报告.md`](docs/性能测试报告.md), raw medians in `docs/benchmark_2026-09-15_clang64_medians.csv`.- The 2026-09-15 performance work in two rounds - wide-object key index (flat-object parse **+23%** overall, **1.75x** on a 100 KB flat document) and the R2 node slimming (`sizeof(Json)` 176 -> 128, copy **+16.6%**, node churn **-12.7%**) - with its A/B evidence, plan-validation measurements and rejected candidates: see [`docs/性能优化实施与评估-2026-09-15.md`](docs/性能优化实施与评估-2026-09-15.md). Independent review of the R2 round: [`docs/复核-2026-09-15-R2与UAF归因.md`](docs/复核-2026-09-15-R2与UAF归因.md).
 ## Thread safety and memory
 
 1. **Node allocation and deallocation are thread safe.** Every thread owns a slab pool that is never released, so a node allocated on one thread may be freed on another (or after the allocating thread has exited). No locking is involved.
-2. **A document that is only read is safe to share for concurrent reads.** The lazy key index is published with an atomic compare-exchange by the const read paths (racing threads share one fully built table), and member names are owned at parse time, so `operator[]`/`contains`/`findPtr`/`at` and iteration (including `entry.key()`) are pure reads: no allocation, no throw. **Concurrent reads and writes of one document are still not safe** (same as `std::string`); hand out copies or move ownership instead.
+2. **A document that is only read is safe to share for concurrent reads.** The lazy key index is published with an atomic compare-exchange by the const read paths (racing threads share one fully built table), and **no const read path writes to a node** - `entry.key()`/`it.key()` return a `std::string_view`, so nothing is materialized, allocated or thrown. **Concurrent reads and writes of one document are still not safe** (same as `std::string`). An external lock only works when every read goes through a value-returning API and no interior reference or pointer outlives the critical section; the results of `atRef`/`findPtr`/iterators/`key()` are exactly the ones that do. Full recipes, anti-patterns and the measured cost of each pattern: [`docs/多线程使用指南.md`](docs/多线程使用指南.md).
 3. **Pool residency is per thread and unbounded by design.** Each thread keeps the slabs it ever used (measured: 64 short-lived threads that each parsed a 40k-node document leave about 440 MB resident for the process lifetime). Reuse worker threads; do not create one thread per request if documents can be large.
 4. **Cross-module ownership is not guaranteed.** The header inlines into every module, so a document passed across DLL boundaries and destroyed after the owning module is unloaded is unsafe.
 5. Deep documents are safe to copy/print/compare/destroy (iterative traversals), but the parser still refuses nesting beyond 101 levels.
+
+The **full multi-threading guide** (which patterns are safe out of the box, whether adding your own lock is
+enough, the measured price of each of the four patterns, and the anti-pattern list):
+[`docs/多线程使用指南.md`](docs/多线程使用指南.md). How the two const-read races were found and fixed:
+[`docs/线程安全审查与修复-2026-09-16.md`](docs/线程安全审查与修复-2026-09-16.md).
     
 ## Examples
 ```

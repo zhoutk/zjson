@@ -1544,6 +1544,182 @@ TEST(TestApiCoverage, iterator_tuple_protocol_and_traits) {
 	EXPECT_EQ(cit->key(), "key");
 }
 
+TEST(TestApiCoverage, key_is_a_non_materializing_view_on_both_name_storage_branches) {
+	// 2026-09-16: key() returns a string_view and never rewrites the node.  That is
+	// what makes concurrent const reads safe, and it is why object names may be
+	// borrowed from the arena again (see JsonParser::maxInlineNameLength): with no
+	// materializing accessor left, a borrowed name carries no race.
+	//
+	// Pin the return types first, so a future refactor cannot quietly go back to a
+	// materializing accessor without breaking this test.
+	static_assert(std::is_same<decltype(std::declval<const JsonEntry&>().key()), string_view>::value,
+		"JsonEntry::key() must be a view");
+	static_assert(std::is_same<decltype(std::declval<const JsonConstEntry&>().key()), string_view>::value,
+		"JsonConstEntry::key() must be a view");
+	static_assert(std::is_same<decltype(std::declval<const Json::const_iterator&>().key()), string_view>::value,
+		"iterator::key() must be a view");
+	// Structured bindings obtain element 0's type from tuple_element, so it has to
+	// match what get<0>() returns.
+	static_assert(std::is_same<std::tuple_element<0, JsonEntry>::type, string_view>::value,
+		"tuple_element<0> must match JsonEntry::key()");
+
+	// The "own the short names" optimisation is only free while a name of at most
+	// maxInlineNameLength characters stays inside the std::string object, so pin the
+	// premise the parser queries: a string of exactly capacity() characters is
+	// inline.  (A hard-coded threshold would be wrong here - libc++ inlines 22
+	// characters, libstdc++ and MSVC only 15.)
+	{
+		const size_t capacity = std::string().capacity();
+		std::string probe(capacity, 'k');
+		const char* bytes = probe.data();
+		const char* object = reinterpret_cast<const char*>(&probe);
+		EXPECT_GE(bytes, object);
+		EXPECT_LT(bytes, object + sizeof(std::string));
+	}
+
+	// maxInlineNameLength (inline), maxInlineNameLength+1 (first borrowed length),
+	// 80 bytes, and a long escaped key - each has to read back byte-for-byte.
+	const std::string shortKey(std::string().capacity(), 's');
+	const std::string edgeKey(std::string().capacity() + 1, 'e');
+	const std::string longKey(80, 'L');
+	const std::string escapedKey(40, 'q');
+	const std::string document =
+		"{\"" + shortKey + "\":1,\"" + edgeKey + "\":2,\"" + longKey + "\":3,\"" +
+		std::string("\\u0041") + escapedKey + "\":4}";
+	// The escaped name decodes to "A"+escapedKey, and re-serializing it needs no
+	// escape, so the round trip is checked against this form rather than the input.
+	const std::string serializedForm =
+		"{\"" + shortKey + "\":1,\"" + edgeKey + "\":2,\"" + longKey + "\":3,\"" +
+		"A" + escapedKey + "\":4}";
+
+	std::string err;
+	Json doc = Json::ParseJson(document, err);
+	ASSERT_FALSE(doc.isError()) << err;
+
+	// Json::size() is array-only (-1 for objects), so count the members directly.
+	size_t memberTotal = 0;
+	for (Json::const_iterator it = doc.cbegin(); it != doc.cend(); ++it)
+		++memberTotal;
+	ASSERT_EQ(memberTotal, 4u);
+
+	EXPECT_EQ(doc[shortKey].toInt(), 1);
+	EXPECT_EQ(doc[edgeKey].toInt(), 2);
+	EXPECT_EQ(doc[longKey].toInt(), 3);
+	EXPECT_EQ(doc["A" + escapedKey].toInt(), 4);
+
+	std::vector<std::string> seen;
+	for (Json::const_iterator it = doc.cbegin(); it != doc.cend(); ++it) {
+		const string_view key = (*it).key();
+		seen.emplace_back(key);
+		// Two reads of the same entry must observe the same bytes at the same
+		// address: a materializing accessor would move a borrowed name into the
+		// node and hand back a different pointer the second time.
+		EXPECT_EQ((*it).key().data(), key.data());
+		EXPECT_EQ((*it).key().size(), key.size());
+	}
+	ASSERT_EQ(seen.size(), 4u);
+	EXPECT_EQ(seen[0], shortKey);
+	EXPECT_EQ(seen[1], edgeKey);
+	EXPECT_EQ(seen[2], longKey);
+	EXPECT_EQ(seen[3], "A" + escapedKey);
+
+	// Structured bindings still work and now yield a view.
+	std::string bound;
+	for (const auto& [key, value] : doc) {
+		bound.append(key);
+		EXPECT_TRUE(value.isNumber());
+	}
+	EXPECT_EQ(bound, shortKey + edgeKey + longKey + "A" + escapedKey);
+
+	// The document still serializes and deep-copies unchanged.
+	EXPECT_EQ(doc.toString(), serializedForm);
+	Json copy = doc;
+	EXPECT_TRUE(copy == doc);
+	EXPECT_EQ(copy.toString(), serializedForm);
+}
+
+TEST(TestApiCoverage, object_names_past_the_inline_threshold_do_not_cost_a_heap_block_each) {
+	// Names longer than JsonParser::maxInlineNameLength borrow from the arena rather
+	// than owning a std::string, so parsing a wide object with 64-byte names costs no
+	// more allocations than one with 8-byte names.  Owning them - which is what the
+	// first cut of the thread-safety fix did, before key() became a view - added
+	// exactly one heap block per key: 208 allocations instead of 8 for 200 keys.
+	//
+	// Only the parse half is asserted here.  Copying assigns std::string through
+	// basic_string::operator=, which lives in the shared standard library on this
+	// platform, so the replaced operator new does not observe those allocations and a
+	// copy comparison would pass vacuously; parsing goes through basic_string's
+	// converting constructor, which is visible.  The copy cost (2.4x on 64-byte keys)
+	// is pinned by the benchmark instead - see docs/线程安全审查与修复-2026-09-16.md.
+	const size_t keyCount = 200;
+	auto buildDocument = [](int keyLength) {
+		std::string text = "{";
+		for (size_t i = 0; i < keyCount; ++i) {
+			if (i)
+				text += ',';
+			std::string key = "k" + std::to_string(i);
+			key.resize(static_cast<size_t>(keyLength), 'x');
+			text += "\"" + key + "\":" + std::to_string(i);
+		}
+		return text + "}";
+	};
+	auto memberCount = [](const Json& document) {
+		size_t count = 0;
+		for (Json::const_iterator it = document.cbegin(); it != document.cend(); ++it)
+			++count;
+		return count;
+	};
+
+	const std::string shortKeys = buildDocument(8);
+	const std::string longKeys = buildDocument(64);
+
+	// Functional contract first: it holds in every build.
+	{
+		std::string err;
+		Json fromShort = Json::ParseJson(shortKeys, err);
+		ASSERT_FALSE(fromShort.isError()) << err;
+		Json fromLong = Json::ParseJson(longKeys, err);
+		ASSERT_FALSE(fromLong.isError()) << err;
+		EXPECT_EQ(memberCount(fromShort), keyCount);
+		EXPECT_EQ(memberCount(fromLong), keyCount);
+		EXPECT_EQ(fromShort.toString(), shortKeys);
+		EXPECT_EQ(fromLong.toString(), longKeys);
+	}
+
+	// The counter claim only holds where standard-library allocations are visible.
+	ZJSON_SKIP_UNLESS_STDLIB_ALLOCATIONS_ARE_COUNTED();
+
+	// The node pool's slabs and the arena's chunks are one-time costs, so warm both
+	// shapes first - otherwise whichever shape runs first pays for the pool and the
+	// comparison measures that instead of the names.
+	{
+		std::string err;
+		Json warmShort = Json::ParseJson(shortKeys, err);
+		ASSERT_FALSE(warmShort.isError()) << err;
+		Json warmLong = Json::ParseJson(longKeys, err);
+		ASSERT_FALSE(warmLong.isError()) << err;
+		EXPECT_EQ(memberCount(warmShort), keyCount);
+		EXPECT_EQ(memberCount(warmLong), keyCount);
+	}
+
+	std::string err;
+	AllocSnapshot beforeShort = allocationSnapshot();
+	Json parsedShort = Json::ParseJson(shortKeys, err);
+	ASSERT_FALSE(parsedShort.isError()) << err;
+	EXPECT_EQ(memberCount(parsedShort), keyCount);
+	const size_t shortCost = allocationsBetween(beforeShort);
+
+	AllocSnapshot beforeLong = allocationSnapshot();
+	Json parsedLong = Json::ParseJson(longKeys, err);
+	ASSERT_FALSE(parsedLong.isError()) << err;
+	EXPECT_EQ(memberCount(parsedLong), keyCount);
+	const size_t longCost = allocationsBetween(beforeLong);
+
+	EXPECT_EQ(longCost, shortCost)
+		<< "64-byte names cost " << longCost << " allocations vs " << shortCost
+		<< " for 8-byte names; owning them would add " << keyCount << " heap blocks";
+}
+
 TEST(TestApiCoverage, iterator_on_empty_and_non_container_nodes) {
 	Json emptyObject;
 	EXPECT_TRUE(emptyObject.begin() == emptyObject.end());

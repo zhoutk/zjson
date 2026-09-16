@@ -4,9 +4,16 @@
 //  What is locked down here changed on 2026-09-16.  Object member names used to
 //  be borrowed views that JsonEntry::key() materialized lazily - the one const
 //  read that could throw, and the one that made concurrent const reads a data
-//  race.  Names are owned at parse time now, so key() allocates nothing and
-//  cannot throw.  These tests pin that contract: arming a fail-on-Nth-allocation
-//  counter and calling key() must leave the counter armed.
+//  race.  key() now returns a std::string_view over the node and materializes
+//  nothing, so it allocates nothing and cannot throw - and the
+//  StoredString::strRef() accessor that did the materializing is gone entirely.
+//  These tests pin that contract: arming a fail-on-Nth-allocation counter and
+//  calling key() must leave the counter armed.
+//
+//  Note the key below is deliberately longer than any std::string inline buffer,
+//  so it is stored as an ARENA-BORROWED view - i.e. exactly the storage the old
+//  materializing accessor would have had to rewrite in place.  The contract is
+//  therefore verified on the harder branch.
 //
 //  The injection replaces the global operator new/delete family with
 //  malloc/free plus a countdown, which is only valid because this translation
@@ -54,8 +61,10 @@ void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 
 namespace {
 
-// Longer than any SSO buffer, so materializing it into a std::string would be
-// exactly one allocation - i.e. any regression in key() shows up immediately.
+// Far longer than any std::string inline buffer (15 on libstdc++/MSVC, 22 on
+// libc++), so the parser stores it as a borrowed arena view.  Materializing that
+// view into a std::string would be exactly one allocation - i.e. any regression
+// in key() shows up immediately.
 std::string longKey() {
 	return std::string(80, 'K');
 }
@@ -67,6 +76,8 @@ std::string sourceWithLongKey() {
 }  // namespace
 
 // key() is a pure read: no allocation, therefore no throw, therefore no race.
+// The key is a borrowed view (see longKey()), so this also proves that a
+// borrowed name is never materialized.
 TEST(ExceptionSafety, KeyReadOnParsedDocumentAllocatesNothing) {
 	std::string err;
 	Json doc = Json::ParseJson(sourceWithLongKey(), err);

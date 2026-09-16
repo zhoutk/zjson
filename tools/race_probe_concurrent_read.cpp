@@ -1,7 +1,15 @@
 // Reproducer for the two const-read data races fixed on 2026-09-16 (see
 // docs/线程安全审查与修复-2026-09-16.md).  mode 0: lazy buildKeymap(); mode 1:
-// StoredString::strRef() materializing a borrowed key.  Build with
-// -fsanitize=address; both modes are clean after the fix.
+// StoredString::strRef() materializing a borrowed key.
+//
+// Run it against the PARENT of the fixing commit to see the two ASan reports and
+// against the current header to see both modes clean; the fix is only evidenced by
+// the pair, never by the clean run alone.
+//
+// mode 1 matters twice: key() no longer materializes anything (it returns a
+// string_view), so names past the parser's inline threshold borrow from the arena
+// again - and a borrowed name is exactly the storage the old code had to rewrite in
+// place.  Keep the probe's key longer than the inline threshold so this stays true.
 #include "zjson.hpp"
 
 #include <atomic>
@@ -48,10 +56,10 @@ int main(int argc, char** argv) {
 						volatile bool found = document->contains("k5");
 						(void)found;
 					} else {
-						// First key() on the fresh document => all threads rewrite
-						// the borrowed StoredString in place.
+						// First key() on the fresh document => all threads walk the
+						// borrowed name that used to be rewritten in place.
 						Json::const_iterator it = document->cbegin();
-						const std::string& key = (*it).key();
+						const std::string_view key = (*it).key();
 						volatile size_t length = key.size();
 						(void)length;
 					}
@@ -70,8 +78,12 @@ int main(int argc, char** argv) {
 		} else {
 			// Exactly one borrowed string (the key) => the arena's control block
 			// refcount is 1, so a duplicated decrement frees it immediately.
+			// The key is longer than the parser's inline-name threshold on purpose,
+			// so the name is a VIEW into the arena - the storage that a materializing
+			// key() would have had to rewrite.
 			std::string err;
-			fresh = Json::ParseJson("{\"member_key_0\":1}", err);
+			fresh = Json::ParseJson(
+				"{\"member_key_0_that_is_definitely_longer_than_the_inline_threshold\":1}", err);
 			if (fresh.isError()) {
 				printf("parse failed: %s\n", err.c_str());
 				return 2;

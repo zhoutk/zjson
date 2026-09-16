@@ -6,7 +6,8 @@
 //  2. A document that is only *read* may be shared by any number of threads.
 //     Regressions here are the reason this file exists: the key index used to be
 //     built lazily by const readers, and key() used to rewrite a borrowed name
-//     in place - both were data races under AddressSanitizer.
+//     in place - both were data races under AddressSanitizer.  key() now returns
+//     a string_view over the node, so no const read path writes to it at all.
 //  3. A concurrently *written* document is NOT safe, like std::string.
 //
 //  Reader tests share ONE freshly parsed document per round and release the
@@ -44,6 +45,20 @@ std::string wideDocumentText(int keys) {
 	return text;
 }
 
+// A key longer than the parser's inline-name threshold, so its StoredString is a
+// VIEW into the source arena - the storage that a materializing key() would have
+// had to rewrite in place.
+const char* const borrowedMemberKey = "a_member_key_that_is_definitely_longer_than_the_inline_limit";
+
+// One inline-owned member and one arena-borrowed member, both values numbers.
+// The borrowed name is then the document's ONLY borrow, i.e. the arena's reference
+// count is exactly 1 - which is what made two concurrent materializations free it.
+const std::string& keyStorageDocumentText() {
+	static const std::string text =
+		std::string("{\"shortk\":1,\"") + borrowedMemberKey + "\":2}";
+	return text;
+}
+
 // Every const read path that the library documents as read-only.
 void exerciseConstReads(const Json& document, int keys, std::atomic<int>& failures) {
 	if (!document.contains("k5"))
@@ -65,10 +80,11 @@ void exerciseConstReads(const Json& document, int keys, std::atomic<int>& failur
 	if (document["escapedAkey"].toString() != "line1\nline2")
 		failures.fetch_add(1);
 
-	// Iteration must materialize key text without rewriting the node.
+	// Iteration must expose key text without rewriting the node (key() returns a
+	// view, so long keys borrow from the arena and short ones live inline).
 	size_t members = 0;
 	for (Json::const_iterator it = document.cbegin(); it != document.cend(); ++it) {
-		const std::string& key = (*it).key();
+		const std::string_view key = (*it).key();
 		if (key.empty())
 			failures.fetch_add(1);
 		++members;
@@ -139,12 +155,14 @@ TEST(TestThreadSafety, concurrent_const_reads_of_one_shared_document_are_safe) {
 }
 
 // -----------------------------------------------------------------------------
-// The key() path that used to rewrite the node in place.  The document holds
-// exactly one borrowed string, so the arena refcount is 1.
+// The key() path that used to rewrite the node in place, exercised on BOTH storage
+// branches: `shortk` is owned inline, `borrowedMemberKey` borrows from the arena.
 // -----------------------------------------------------------------------------
-TEST(TestThreadSafety, concurrent_key_materialization_never_rewrites_the_node) {
+TEST(TestThreadSafety, concurrent_key_reads_never_rewrite_the_node) {
 	const int threadCount = 8;
 	const int rounds = 400;
+	const std::string expected =
+		std::string("shortk") + borrowedMemberKey;
 	std::atomic<int> failures{ 0 };
 	std::atomic<int> generation{ 0 };
 	std::atomic<int> arrived{ 0 };
@@ -159,9 +177,14 @@ TEST(TestThreadSafety, concurrent_key_materialization_never_rewrites_the_node) {
 					std::this_thread::yield();
 				const Json* document = shared.load(std::memory_order_acquire);
 				if (document) {
-					Json::const_iterator it = document->cbegin();
-					const std::string& key = (*it).key();
-					if (key != "member_key_0")
+					std::string joined;
+					size_t seen = 0;
+					for (Json::const_iterator it = document->cbegin(); it != document->cend(); ++it) {
+						const std::string_view key = (*it).key();
+						joined.append(key);   // string_view -> append is C++17
+						++seen;
+					}
+					if (seen != 2 || joined != expected)
 						failures.fetch_add(1);
 				}
 				arrived.fetch_add(1, std::memory_order_acq_rel);
@@ -171,7 +194,7 @@ TEST(TestThreadSafety, concurrent_key_materialization_never_rewrites_the_node) {
 
 	for (int round = 0; round < rounds; ++round) {
 		std::string err;
-		const Json document = Json::ParseJson("{\"member_key_0\":1}", err);
+		const Json document = Json::ParseJson(keyStorageDocumentText(), err);
 		ASSERT_FALSE(document.isError()) << err;
 
 		shared.store(&document, std::memory_order_release);
