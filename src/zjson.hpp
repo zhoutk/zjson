@@ -4722,3 +4722,116 @@ namespace std {
 	// merely adding overloads to namespace std would be undefined behaviour.  Write
 	// `using std::get; get<0>(entry);` when a named form is wanted.
 }
+// ============================================================================
+// Direct-child access & safe mutation conveniences (pure additions).
+// ============================================================================
+// Why this block exists: Json's operator[](key) / take(key) / remove(key) fall
+// back to a *deep* search (remove deletes matching keys recursively), while the
+// vast majority of call sites want "direct children only" object semantics.
+// Iteration also yields non-materializing string_view keys (no implicit
+// conversion to std::string), and size()/isEmpty() have surprising values for
+// objects (size() is -1, so isEmpty() is always true).  These inline helpers
+// centralize the safe idioms once.  They use only public API - nothing here
+// touches class Json itself.  Living inside namespace ZJSON means one single
+// namespace for the whole library.
+namespace ZJSON {
+
+/// Direct child (no deep search).  Returns nullptr when the key is absent or
+/// the node is not an object.
+inline const Json* directChild(const Json& object, std::string_view key)
+{
+    if (!object.isObject()) {
+        return nullptr;
+    }
+    return object.directMemberPtr(key);
+}
+
+/// Whether a direct child with this key exists.
+inline bool hasChild(const Json& object, std::string_view key)
+{
+    return directChild(object, key) != nullptr;
+}
+
+/// Direct child value; returns defaultValue when absent (object[key] without
+/// the deep-search fallback).
+inline Json childValueOr(const Json& object, std::string_view key, const Json& defaultValue = Json())
+{
+    const Json* found = directChild(object, key);
+    return found != nullptr ? *found : defaultValue;
+}
+
+/// Materialize an iterator key (string_view -> std::string).
+inline std::string ownedKey(std::string_view key)
+{
+    return std::string(key);
+}
+
+/// Number of members of an object.
+///
+/// Do NOT use Json::isEmpty() for this: it is `size() <= 0` while size() is -1
+/// for objects, so isEmpty() is true for *every* object.  Always use this
+/// function for objects.
+inline int memberCount(const Json& object)
+{
+    if (!object.isObject()) {
+        return 0;
+    }
+    int count = 0;
+    for (auto it = object.cbegin(); it != object.cend(); ++it) {
+        ++count;
+    }
+    return count;
+}
+
+/// True for an empty object (see memberCount for why isEmpty() cannot be used).
+inline bool isEmptyObject(const Json& object)
+{
+    return memberCount(object) == 0;
+}
+
+/// Replace an array element (QJsonArray-style operator[]= semantics).
+///
+/// Do NOT write `array[index] = value`: Json::operator[] returns a *copy*, so
+/// the assignment is lost.  Do not assign through `it.value()` either:
+/// Json::operator= clears the brother link, which truncates every sibling
+/// after it.  This splices with insert()+remove() instead: only the new value
+/// is copied and the neighbours are re-linked.
+inline bool setElement(Json& array, int index, const Json& value)
+{
+    if (!array.isArray() || index < 0 || index >= array.size()) {
+        return false;
+    }
+    array.insert(index, value);
+    array.remove(index + 1);
+    return true;
+}
+
+/// Set (replace or add) one direct member - insert-without-duplicates
+/// semantics.
+///
+/// Cannot use `object[key] = value` (operator[] returns a copy; the write is
+/// lost) nor add() (it only appends, leaving duplicate members for an existing
+/// key).  Rebuilds the object to implement replacement while preserving
+/// member order.
+inline void setChild(Json& object, std::string_view key, const Json& value)
+{
+    if (!object.isObject() || key.empty()) {
+        return;
+    }
+    Json replacement(JsonType::Object);
+    bool replaced = false;
+    for (auto it = object.cbegin(); it != object.cend(); ++it) {
+        if (it->key() == key) {
+            replacement.add(std::string(key), value);
+            replaced = true;
+        } else {
+            replacement.add(ownedKey(it->key()), it->value());
+        }
+    }
+    if (!replaced) {
+        replacement.add(std::string(key), value);
+    }
+    object = replacement;
+}
+
+} // namespace ZJSON

@@ -253,6 +253,13 @@ if (CMAKE_ZJSON_ENABLE_TEST)
     target_link_libraries(test_qt_macro_compat gtest gtest_main)
     add_test(NAME test_qt_macro_compat COMMAND test_qt_macro_compat)
 
+    # zjson:: convenience block (appended at the end of the header): direct-child
+    # access, member counting, and the safe array/object mutation idioms.
+    add_executable(test_util tests/test_util.cpp)
+    zjson_set_output_dir(test_util)
+    target_link_libraries(test_util gtest gtest_main)
+    add_test(NAME test_util COMMAND test_util)
+
     # The node pool is intentionally process-lifetime, so LeakSanitizer must be told
     # to ignore it. src/zjson.hpp does that at runtime (__lsan_ignore_object) and
     # tests/lsan.supp is the fallback for toolchains where that path is not compiled.
