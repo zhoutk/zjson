@@ -15,13 +15,18 @@
 
 Recent API additions include `toString(indent)` pretty-printing, semantic `==/!=`, `begin/end/cbegin/cend` iteration with structured bindings, duplicate-key `ParseOptions`, JSON Pointer via `at("/a/b/0")`, JSON Merge Patch / JSON Patch via `mergePatch(...)` and `applyPatch(..., err)`, ADL-based `to_json` / `from_json` hooks, plus internal slab allocation and arena-backed parsed string storage.
 
-The current Windows/MSVC Release benchmark report comparing zjson with nlohmann/json, RapidJSON, and simdjson is available in [`docs/性能测试报告.md`](docs/性能测试报告.md).
+Documentation map:
+
+- **[`docs/使用指南.md`](docs/使用指南.md)** — the complete API semantics, traps and quick-reference card (**authoritative for the interface**);
+- [`docs/从Qt迁移指南.md`](docs/从Qt迁移指南.md) — migration from `QJsonDocument` / `QJsonObject`;
+- [`docs/多线程使用指南.md`](docs/多线程使用指南.md) — the threading contract, whether an external lock is enough, and the measured cost of each pattern;
+- [`docs/性能测试报告.md`](docs/性能测试报告.md) — benchmark results against nlohmann / RapidJSON / simdjson.
 
 ## Introduce
-From node.Js back to c++. I especially miss the pleasure of using json in javascript, so try to diy one. I used many libraries, such as: rapidjson, cJson, CJsonObject, drleq cppjson, json11, etc. Zjson's data structure is greatly inspired by cJOSN. The parsing part refers to json11, thanks! Finally, because data storage needs not only to distinguish values, but also to know their types. I choose std:: variant and std:: any which supported by C++17. Finally, the C++ version is fixed at C++17. This library is designed as a single header file, not relying on any other lib than the C++ standard library.
+From node.Js back to c++. I especially miss the pleasure of using json in javascript, so try to diy one. I used many libraries, such as: rapidjson, cJson, CJsonObject, drleq cppjson, json11, etc. Zjson's data structure is greatly inspired by cJOSN. The parsing part refers to json11, thanks! Finally, because data storage needs not only to distinguish values, but also to know their types, the storage settled on a **type tag + union** (the three number states share 8 bytes; strings switch between an owned buffer and a borrowed arena view) - no inheritance, no virtual functions. The C++ version is fixed at C++17. This library is designed as a single header file, not relying on any other lib than the C++ standard library.
 
 ## Design ideas  
-Simple interface functions, simple use methods, flexible data structures, and support chain operations as much as possible. Realizing the simplest design using template technology. Adding a child object of Json only needs one function -- addSubitem, which automatically identifies whether it is a value or a child Json object. The Json object is stored in a linked list structure (refers to cJSON). Please see my data structure design as follows. The header and the following nodes use the same structure, which enables chained operations during index operations ([]).
+Simple interface functions, simple use methods, flexible data structures, and support chain operations as much as possible. Realizing the simplest design using template technology. Adding a child object of Json only needs one function -- `add`, which automatically identifies whether it is a value or a child Json object. The Json object is stored in a linked list structure (refers to cJSON). Please see my data structure design as follows. The header and the following nodes use the same structure, which enables chained operations during index operations ([]).
 
 ## Project progress
 At present, the project has completed most of functions. Please refer to the task list for details. 
@@ -37,11 +42,11 @@ task list：
 - [x] operator[]
 - [x] contains
 - [x] getValueType
-- [x] getAndRemove
+- [x] take / takes (get + remove; formerly getAndRemove)
 - [x] getAllKeys
-- [x] addSubitem（add subitems & add items to array rapidly）
+- [x] add (add members to an object / items to an array rapidly; formerly addSubitem)
 - [x] toString(generate josn string)
-- [x] toInt、toDouble、toFalse
+- [x] toInt、toDouble、toBool
 - [x] toVector
 - [x] isError、isNull、isArray
 - [x] parse - from Json string to Json object
@@ -61,6 +66,10 @@ task list：
 - [x] performance test and comparison harness
 - [x] algorithm non recursion
 - [x] slab allocator and parsed string arena
+- [x] three-state Number (exact int64 / uint64 / double storage)
+- [x] thread safety: concurrent reads of one document + cross-thread node lifetime (see [`docs/多线程使用指南.md`](docs/多线程使用指南.md))
+- [x] Qt keyword-macro coexistence (`slots`/`signals`/`foreach` no longer collide; see `tests/test_qt_macro_compat.cpp`)
+- [x] direct-child & safe-mutation helper block (`directChild`/`hasChild`/`childValueOr`/`ownedKey`/`memberCount`/`isEmptyObject`/`setElement`/`setChild`)
   
 ## Data structure
 
@@ -81,15 +90,21 @@ enum Type {
 ### Json node define
 ```
 class Json {
-    Json* brother;       //like cJSON's next
-    Json* child;         //chile node, for object type
+    Json* brother;       //sibling link (like cJSON's next): the next member/element; the name is meaningful on object members only
+    Json* child;         //first child node, valid for object/array types
+    Json* lastChild;     //tail of the child chain, so append is O(1)
+    atomic<Index*> keymap; //lazy per-object key index (CAS-published by const readers; see the threading guide)
     Type type;           //node type
     NumberKind numberKind;  //which member of the numeric payload below is live
-    union { double; int64_t; uint64_t; } number;   //node's numeric data
-    string valueString;  //node's string data
-    string name;         //node's key
+    union { double; int64_t; uint64_t; } number;   //node's numeric data (8 bytes, three states)
+    StoredString valueString;  //node's string data (owned, or a borrowed arena view)
+    StoredString name;         //node's key (object member name)
 }
 ```
+> Note: `valueString` / `name` are the internal `detail::StoredString` (a tagged union of an owned
+> `std::string` and a view into the parse arena), not a plain `std::string`; strings are materialized only
+> when needed, which keeps `sizeof(Json)` at 128 bytes. Object names are owned while they fit
+> `std::string`'s inline buffer and borrow the arena when longer - neither case materializes in `key()`.
 ## Interface
 Object type, only support Object and Array.
 ```
@@ -101,17 +116,18 @@ enum class JsonType
 ```
 Api list
 - Json(JsonType type = JsonType::Object)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//constructor default, can generate Object or Array
-- template&lt;typename T&gt; Json(T value, string key="")&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//value constructor
-- Json(const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;&nbsp;//move constructor
-- Json(Json&& rhs)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;&nbsp;//copy constructor
+- template&lt;typename T&gt; Json(const T& value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//value constructor (arithmetic; ADL `to_json` types take the other overload)
+- Json(const float&) / Json(const double&) / Json(const bool&) / Json(const std::nullptr_t&)&emsp;//literal constructors (`nullptr` means null)
+- Json(const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;&nbsp;//copy constructor
+- Json(Json&& rhs)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;&nbsp;//move constructor
 - Json(string jsonStr)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//deserialized constructor
 - explicit Json(std::initializer_list&lt;std::pair&lt;const std::string, Json&gt;&gt; values)&emsp;&emsp;&emsp;&emsp;&emsp;//initializer_list Object constructor
 - Json& operator = (const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;
 - Json& operator = (Json&& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;
 - Json operator[](const int& index)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
 - Json operator[](const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;
-- template&lt;typename T&gt; bool addSubitem(T value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
-- template&lt;typename T&gt; bool addSubitem(string name, T value)  //add a subitem
+- template&lt;typename T&gt; Json& add(T value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//append an element to an Array (no effect on an Object)
+- template&lt;typename T&gt; Json& add(string name, T value)&emsp;&emsp;//add a member to an Object; **append** semantics, a duplicate key leaves two members (use `setChild` to replace)
 - string toString()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;
 - bool isError()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
 - bool isNull()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;
@@ -127,18 +143,18 @@ Api list
 - int64_t toInt64()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//exact for integer nodes (no double round trip)
 - uint64_t toUint64()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//exact for integer nodes (no double round trip)
 - bool toBool()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;
-- vector&lt;Json&gt; toVector()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;
-- bool extend(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
-- bool concat(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//for array object
-- bool push_front(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//for array object
-- bool push_back(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//for array object
-- bool insert(int index, Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//for array object
-- void clear()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//clear child
-- void remove(const string &key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
-- bool contains(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
-- string getValueType()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//return value's type in string
-- Json getAndRemove(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
-- std::vector<std::string> getAllKeys()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
+- vector&lt;Json&gt; toVector() const&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;
+- Json& extend(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
+- Json& concat(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//for array object
+- Json& push_front(const Json& value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//for array object
+- Json& push_back(const Json& value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//for array object
+- Json& insert(int index, const Json& value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//for array object
+- Json& clear()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//clear child
+- Json& remove(const string &key, Json* self = nullptr, Json* prev = nullptr)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
+- bool contains(const string& key) const&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
+- string getValueType() const&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//return value's type in string
+- Json take(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
+- Json getAllKeys() const&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;
 
 Additional interface (2026-09-14)
 
@@ -151,6 +167,39 @@ Additional interface (2026-09-14)
 - static Json array(std::initializer_list&lt;Json&gt; values)&emsp;&emsp;&emsp;&emsp;//array construction without `Json{...}` ambiguity
 - std::ostream& dumpTo(std::ostream& out, int indent = 0)&emsp;&emsp;&emsp;//stream the document instead of building the text first
 - static Json ParseJson(std::string&& input, std::string& errMsg)&emsp;//takes ownership of the input buffer (no copy)
+
+More interface
+
+- const Json* resolvePointerPtr(string_view pointer) const&emsp;//locate by RFC 6901 pointer; nullptr when absent (no allocation)
+- Json at(const string& pointer) const&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//pointer-addressed **copy** (Error when absent)
+- static Json ParseJsonStrict(input, err) / ParseJsonStrictUtf8(input, err)&emsp;//strict / strict + UTF-8 validation
+- static Json FromFile(path)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//read a file (document-shaped files are move-parsed; Error on failure)
+- Json& mergePatch(const Json& patch)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//RFC 7386 Merge Patch (in place)
+- Json applyPatch(const Json& operations, string& err) const&emsp;&emsp;//RFC 6902 JSON Patch (returns a new document)
+- iterator / const_iterator with begin/end/cbegin/cend&emsp;&emsp;&emsp;&emsp;//structured bindings work; `key()` returns a `string_view`
+
+Direct-child access & safe-mutation helpers (end of `zjson.hpp`, `namespace ZJSON`, added 2026-09-17)
+
+A group of `inline` free functions that centralize "direct members only" and "never break the sibling
+chain". They use **public API only** and their behaviour is pinned by `tests/test_util.cpp`; full usage
+notes and the ADL caveat are in [`docs/使用指南.md`](docs/使用指南.md) §8.
+
+- const Json* directChild(const Json& object, string_view key)&emsp;//direct members only (no deep search); nullptr when absent / not an object
+- bool hasChild(const Json& object, string_view key)&emsp;&emsp;&emsp;//does a direct member exist
+- Json childValueOr(const Json& object, string_view key, const Json& default)&emsp;//direct value, or the default
+- std::string ownedKey(string_view key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//materialize an iterator `key()` (string_view -> std::string)
+- int memberCount(const Json& object)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//member count (0 for a non-object)
+- bool isEmptyObject(const Json& object)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//object emptiness (the only correct way; do not use `isEmpty()`)
+- bool setElement(Json& array, int index, const Json& value)&emsp;//replace an array element, keeping its siblings
+- void setChild(Json& object, string_view key, const Json& value)&emsp;//replace/add a direct member (no duplicates, order preserved)
+
+> ⚠ Three traps these helpers exist for: `operator[]` returns a **copy** (so `obj["k"] = v` writes to a
+> temporary); `operator=` clears the `brother` link (so `it.value() = v` drops every following element);
+> and `size()` / `isEmpty()` report **-1** / **always true** for an object.
+>
+> ⚠ `directChild` returns a **pointer into the document** - do not let it outlive a critical section when
+> other threads may write (use the value-returning `childValueOr`); see
+> [`docs/多线程使用指南.md`](docs/多线程使用指南.md) §3.1.
 
 Semantics worth knowing
 
@@ -169,7 +218,7 @@ Semantics worth knowing
   | `s += e.key();` / `s.append(e.key());` / `v.emplace_back(e.key())` | ✅ |
   | comparison, `.empty()`/`.size()`, structured bindings, using the `string_view` directly | ✅ |
 
-  Note that `std::string k = e.key();` (a declaration - fails) and `k = e.key();` (an assignment - works) behave differently. Migration: add parentheses, `std::string(e.key())`, or use the `string_view` as-is.
+  Note that `std::string k = e.key();` (a declaration - fails) and `k = e.key();` (an assignment - works) behave differently. Migration: add parentheses, `std::string(e.key())`, or use the `string_view` as-is - or use the helper block's `ZJSON::ownedKey(e.key())`, whose name states the intent.
 - The view returned by `key()`/`it.key()` is valid while the document is alive and the member is not renamed (it points into the parse arena for long keys); copy it into a `std::string` while it is still valid when it must outlive that.
 - Object **names** are owned when they fit `std::string`'s inline buffer and borrow the parse arena when they are longer (so nothing allocates per key, and no read path ever rewrites a node); string **values** always borrow the arena.
 - Structured bindings work through the ADL `get` + `std::tuple_size`/`std::tuple_element`; `std::get<N>(entry)` is intentionally not provided (adding overloads to `namespace std` for our own types would be undefined behaviour).

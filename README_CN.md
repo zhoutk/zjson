@@ -15,16 +15,21 @@
 
 近期补齐的 API 包括：`toString(indent)` pretty-print、语义比较 `==/!=`、支持结构化绑定的 `begin/end/cbegin/cend`、重复键 `ParseOptions`、JSON Pointer `at("/a/b/0")`、JSON Merge Patch / JSON Patch（`mergePatch(...)`、`applyPatch(..., err)`）、ADL `to_json` / `from_json` 类型映射钩子，以及内部 slab 节点池和解析字符串 arena 存储。
 
-当前基于 Windows/MSVC Release 的 zjson 与 nlohmann/json、RapidJSON、simdjson 对照 benchmark 报告见 [`docs/性能测试报告.md`](docs/性能测试报告.md)。
+文档导航：
+
+- **[`docs/使用指南.md`](docs/使用指南.md)** —— 完整 API 语义、陷阱与速查卡（**接口以它为准**）；
+- [`docs/从Qt迁移指南.md`](docs/从Qt迁移指南.md) —— 从 QJsonDocument/QJsonObject 迁移的差异清单；
+- [`docs/多线程使用指南.md`](docs/多线程使用指南.md) —— 线程契约、加锁是否够用、各模式的实测代价；
+- [`docs/性能测试报告.md`](docs/性能测试报告.md) —— 与 nlohmann / RapidJSON / simdjson 的对照数据。
 
 ## 介绍
-从node.js转到c++，特别怀念在js中使用json那种畅快感。在c++中也使用过了些库，但提供的接口使用方式，总不是习惯，很烦锁，接口函数太多，不直观。参考了很多库，如：rapidjson, cJson, CJsonObject, drleq-cppjson, json11等。数据结构受cJOSN启发很大，解析部分借鉴了json11，向他们致敬。最后因为数据存储需要不区分型别，又要能知道其型别，所以选择了C++17才支持的std::variant以及std::any，最终，C++版本定格在c++17，本库设计为单头文件，且不依赖c++标准库以外的任何库。
+从node.js转到c++，特别怀念在js中使用json那种畅快感。在c++中也使用过了些库，但提供的接口使用方式，总不是习惯，很烦锁，接口函数太多，不直观。参考了很多库，如：rapidjson, cJson, CJsonObject, drleq-cppjson, json11等。数据结构受cJOSN启发很大，解析部分借鉴了json11，向他们致敬。最后因为数据存储需要不区分型别，又要能知道其型别，最终采用**类型标签 + union 的紧凑存储**（数字三态共用 8 字节；字符串在 owned / arena 借用视图之间切换），不继承、不用虚函数，C++版本定格在c++17，本库设计为单头文件，且不依赖c++标准库以外的任何库。
 
 ## 项目名称说明
 本人姓名拼音第一个字母z加上json，即得本项目名称zjson，没有其它任何意义。我将编写一系列以z开头的相关项目，命名是个很麻烦的事，因此采用了这种简单粗暴的方式。
 
 ## 设计思路 
-简单的接口函数、简单的使用方法、灵活的数据结构、尽量支持链式操作。使用模板技术，得以完成最简设计，为Json对象子对象的方法只需一个 ———— addSubitem，该方法自动识别是值对象还是子Json对象。采用链表结构（向cJSON致敬）来存储Json对象，请看我下面的数据结构设计，表头与后面的结点，都用使用一致的结构，这使得在索引操作([])时，可以进行链式操作。
+简单的接口函数、简单的使用方法、灵活的数据结构、尽量支持链式操作。使用模板技术，得以完成最简设计，为Json对象增加子对象只需一个方法 ———— `add`，该方法自动识别是值对象还是子Json对象。采用链表结构（向cJSON致敬）来存储Json对象，请看我下面的数据结构设计，表头与后面的结点，都用使用一致的结构，这使得在索引操作([])时，可以进行链式操作。
 
 ## 项目进度
 项目目前完成大部分主要功能，具体情况请看任务列表。可以新建Json对象，增加数据，按key(Object类型)或索引(Array类型)提取相应的值或子对象，生成json字符串，并且实现从json字符串构造Json对象。  
@@ -41,11 +46,11 @@
 - [x] operator[]
 - [x] contains
 - [x] getValueType
-- [x] getAndRemove
+- [x] take / takes （取值+删除；旧名 getAndRemove）
 - [x] getAllKeys
-- [x] addSubitem（为Json对象增加子对象，为数组快速增加元素）
+- [x] add（为Json对象增加成员，为数组快速增加元素；旧名 addSubitem）
 - [x] toString(生成json字符串)
-- [x] toInt、toDouble、toFalse 等值类型转换
+- [x] toInt、toDouble、toBool 等值类型转换
 - [x] toVector 数组类型转换
 - [x] isError、isNull、isArray 等节点类型判断
 - [x] parse, 从json字符串生成Json对象
@@ -65,6 +70,10 @@
 - [x] 性能测试与对照 harness
 - [x] 非递归算法
 - [x] 节点池与解析字符串 arena 存储
+- [x] 三态 Number（int64 / uint64 / double 精确存储）
+- [x] 线程安全：并发只读同一棵树 + 跨线程分配/释放（见 [`docs/多线程使用指南.md`](docs/多线程使用指南.md)）
+- [x] Qt 关键字宏共存（`slots`/`signals`/`foreach` 不再冲突，见 `tests/test_qt_macro_compat.cpp`）
+- [x] 直系子节点与安全变更辅助块（`directChild`/`hasChild`/`childValueOr`/`ownedKey`/`memberCount`/`isEmptyObject`/`setElement`/`setChild`）
   
 ## 数据结构
 
@@ -85,15 +94,20 @@ enum Type {
 ### Json 节点定义
 ```
 class Json {
-    Json* brother;       //与cJSON中的next对应，值类型才有效，指向并列的数据，但有可能是值类型，也有可能是对象类型
-    Json* child;         //孩子节点，对象类型才有效
+    Json* brother;       //兄弟/后继节点（与cJSON的next对应）：对象成员或数组元素的下一个，名称仅在对象成员上有意义
+    Json* child;         //第一个孩子节点，对象/数组类型才有效
+    Json* lastChild;     //孩子链尾指针，使 append 为 O(1)
+    atomic<Index*> keymap; //对象的惰性键索引（const 读路径以 CAS 发布，见线程指南）
     Type type;           //节点类型
     NumberKind numberKind;  //数字载荷当前生效的是哪一个成员（double / int64 / uint64）
-    union { double; int64_t; uint64_t; } number;   //节点数字数据
-    string valueString;  //节点字符串数据
-    string name;         //节点的key
+    union { double; int64_t; uint64_t; } number;   //节点数字数据（8 字节三态复用）
+    StoredString valueString;  //节点字符串数据（owned 或 arena 借用视图）
+    StoredString name;         //节点的key（对象成员的键名）
 }
 ```
+> 说明：`valueString` / `name` 是内部的 `detail::StoredString`（带标签的联合：owned `std::string`
+> 或指向解析 arena 的视图），不是裸 `std::string`；这样每个字符串只在必要时才物化，`sizeof(Json)` 为 128 字节。
+> 键名在能放进 `std::string` 内联缓冲时 owned、更长时借用 arena，两种情况下 `key()` 都不物化。
 ## 接口说明
 公开的对象类型，json只支持Object与Array两种对象，与内部类型对应（公开类型）。
 ```
@@ -105,18 +119,23 @@ enum class JsonType
 ```
 接口列表
 - Json(JsonType type = JsonType::Object)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//默认构造函数，生成Object或Array类型的Json对象
-- template&lt;typename T&gt; Json(T value, string key="")&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//值构造函数
+- template&lt;typename T&gt; Json(const T&amp; value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//值构造函数（算术类型；另有 ADL `to_json` 重载）
+- Json(const float&amp;) / Json(const double&amp;) / Json(const bool&amp;) / Json(const std::nullptr_t&amp;)&emsp;//字面量构造（`nullptr` 表示 null）
 - Json(const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;&nbsp;//复制构造函数
 - Json(Json&& rhs)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;&nbsp;//移动构造函数
 - Json(string jsonStr)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//反序列化构造函数
 - explicit Json(std::initializer_list&lt;std::pair&lt;const std::string, Json&gt;&gt; values)&emsp;&emsp;&emsp;&emsp;&emsp;//initializer_list Object构造函数
 - Json& operator = (const Json& origin)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//赋值操作
 - Json& operator = (Json&& rhs)&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//移动赋值操作
-- Json operator[](const int& index)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//Json数组对象元素查询
-- Json operator[](const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//Json Object 对象按key查询
-- template&lt;typename T&gt; bool addSubitem(T value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//增加值对象类型，只面向Array
-- template&lt;typename T&gt; bool addSubitem(string name, T value)  //增加值对象类型，当this为Array时，name会被忽略
-- string toString()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//Json对象序列化为字符串
+- Json operator[](const int&amp; index)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//Json数组对象元素查询（**返回副本**）
+- Json operator[](const string&amp; key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//Json Object 对象按key查询（**返回副本**；直系未命中会**深搜**回退）
+- template&lt;typename T&gt; Json&amp; add(T value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//向Array追加元素（对Object无效）
+- template&lt;typename T&gt; Json&amp; add(string name, T value)&emsp;&emsp;//为Object增加成员；**追加**语义，同名键会留下重复成员（要替换语义用 `setChild`）
+- Json&amp; add(const Json&amp; value) / Json&amp; add(Json&amp;&amp; value)&emsp;&emsp;//同上，避免值对象重复拷贝
+- [[nodiscard]] string toString() const&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//Json对象序列化为字符串（紧凑单行）
+- [[nodiscard]] string toString(int indent) const&emsp;&emsp;&emsp;&nbsp;&nbsp;//美化输出（indent &lt;= 0 等价于紧凑）
+- std::ostream&amp; dumpTo(std::ostream&amp; out, int indent = 0) const&emsp;//直接写流，不先拼整串（大文档推荐）
+- std::ostream&amp; dump(std::ostream&amp; out, int indent = 0) const//写流（内部先拼整串）；`operator&lt;&lt;` 等价于 dump
 - bool isError()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//无效Json对象判定
 - bool isNull()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//null值判定
 - bool isObject()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//Object对象判定
@@ -131,18 +150,18 @@ enum class JsonType
 - int64_t toInt64()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//整数节点精确读取，不经double
 - uint64_t toUint64()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//整数节点精确读取，不经double
 - bool toBool()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//值对象转为bool
-- vector&lt;Json&gt; toVector()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//数组对象转为vector
-- bool extend(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//对象扩展
-- bool concat(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组扩展
-- bool push_front(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组压入队首
-- bool push_back(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组压入队尾
-- bool insert(int index, Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组插入元素
-- bool clear()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//清空
-- void remove(const string &key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//删除键值
-- bool contains(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//判断key是否存在
-- string getValueType()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取值类型字符串表示
-- Json getAndRemove(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取并删除
-- std::vector<std::string> getAllKeys()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取所有key
+- vector&lt;Json&gt; toVector() const&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//数组对象转为vector
+- Json& extend(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//对象扩展
+- Json& concat(Json value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组扩展
+- Json& push_front(const Json& value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组压入队首
+- Json& push_back(const Json& value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组压入队尾
+- Json& insert(int index, const Json& value)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//数组插入元素
+- Json& clear()&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//清空
+- Json& remove(const string &key, Json* self = nullptr, Json* prev = nullptr)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//删除键值
+- bool contains(const string& key) const&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//判断key是否存在
+- string getValueType() const&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取值类型字符串表示
+- Json take(const string& key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取并删除
+- Json getAllKeys() const&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//获取所有key
 
 新增接口（2026-09-14）
 
@@ -155,6 +174,37 @@ enum class JsonType
 - static Json array(std::initializer_list&lt;Json&gt; values)&emsp;&emsp;&emsp;&emsp;//构造数组，避免 `Json{...}` 歧义
 - std::ostream& dumpTo(std::ostream& out, int indent = 0)&emsp;&emsp;&emsp;//直接写流，不先拼整串
 - static Json ParseJson(std::string&& input, std::string& errMsg)&emsp;//接管输入缓冲，不再复制文档文本
+
+补充接口
+
+- const Json* resolvePointerPtr(string_view pointer) const&emsp;//按指针定位，nullptr = 不存在（零分配）
+- Json at(const string&amp; pointer) const&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;&nbsp;//按指针取**副本**（失败返回 Error）
+- static Json ParseJsonStrict(input, err) / ParseJsonStrictUtf8(input, err)&emsp;//严格模式 / 严格 + UTF-8 校验
+- static Json FromFile(path)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//读文件（文档形状走移动解析；失败返回 Error）
+- Json&amp; mergePatch(const Json&amp; patch)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//RFC 7386 Merge Patch（就地生效）
+- Json applyPatch(const Json&amp; operations, string&amp; err) const&emsp;&emsp;//RFC 6902 JSON Patch（返回新文档）
+- iterator / const_iterator，begin/end/cbegin/cend&emsp;&emsp;&emsp;&emsp;//支持结构化绑定；`key()` 返回 `string_view`
+
+直系访问与安全变更辅助（`zjson.hpp` 末尾，`namespace ZJSON`，2026-09-17 新增）
+
+一组 `inline` 自由函数，把「只要直系成员」「不切断兄弟链」的语义集中化。**只依赖公开 API**，行为由
+`tests/test_util.cpp` 全量锁定；使用场景与 ADL 注意事项见 [`docs/使用指南.md`](docs/使用指南.md) §8。
+
+- const Json* directChild(const Json&amp; object, string_view key)&emsp;//只看直系（不深搜）；缺失/非对象 → nullptr
+- bool hasChild(const Json&amp; object, string_view key)&emsp;&emsp;&emsp;//直系成员是否存在
+- Json childValueOr(const Json&amp; object, string_view key, const Json&amp; default)&emsp;//直系取值，缺失给默认
+- std::string ownedKey(string_view key)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&nbsp;//物化迭代器 `key()`（string_view → std::string）
+- int memberCount(const Json&amp; object)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//对象成员数（非对象返回 0）
+- bool isEmptyObject(const Json&amp; object)&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;//对象判空（唯一正确方式，勿用 `isEmpty()`）
+- bool setElement(Json&amp; array, int index, const Json&amp; value)&emsp;//数组元素替换（兄弟链存活）
+- void setChild(Json&amp; object, string_view key, const Json&amp; value)&emsp;//直系成员替换/新增（去重，保持成员顺序）
+
+> ⚠ 三个必记的坑（也是这组函数存在的原因）：`operator[]` 返回**副本**（`obj["k"] = v` 赋值无效）；
+> `operator=` 会切断 `brother` 链（`it.value() = v` 会丢掉后面的所有元素）；`size()` / `isEmpty()`
+> 对 Object 分别是 **-1** / **恒 true**。
+>
+> ⚠ `directChild` 返回的是**指向文档内部的指针**，多线程下不要让它活过临界区（改用值语义的 `childValueOr`），
+> 详见 [`docs/多线程使用指南.md`](docs/多线程使用指南.md) §3.1。
 
 需要知道的语义
 
@@ -173,7 +223,7 @@ enum class JsonType
   | `s += e.key();` / `s.append(e.key());` / `v.emplace_back(e.key())` | ✅ |
   | 比较、`.empty()`/`.size()`、结构化绑定、`std::string_view` 直接使用 | ✅ |
 
-  注意 `std::string k = e.key();`（声明，失败）与 `k = e.key();`（赋值，成功）行为不同。迁移方式：加个括号 `std::string(e.key())`，或改用 `std::string_view`。
+  注意 `std::string k = e.key();`（声明，失败）与 `k = e.key();`（赋值，成功）行为不同。迁移方式：加个括号 `std::string(e.key())`，或改用 `std::string_view`，或用辅助块的 `ZJSON::ownedKey(e.key())`（可读性最好，函数名即语义）。
 - `key()`/`it.key()` 返回的视图只在「文档存活且该成员未被改名」期间有效（长键时它指向解析 arena）；需要留存请**在锁内/使用期内**转成 `std::string`。
 - 对象**键名**在能放进 `std::string` 内联缓冲时 owned、更长时借用解析 arena（保证不分配，也不存在任何会就地改写节点的读路径）；字符串**值**始终借用 arena。
 - 结构化绑定依赖 ADL `get` + `std::tuple_size`/`std::tuple_element`；**刻意不提供** `std::get<N>(entry)`（为自己的类型向 `namespace std` 加重载是 UB）。
